@@ -11,30 +11,31 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # --- CONFIGURACIÓN MULTI-CADENA (AAVE V3) ---
-# Diccionario con RPCs optimizados (LlamaNodes) y direcciones del Pool de Aave V3
+# RPCs actualizados a proveedores de alta disponibilidad (PublicNode / Llama / 1RPC)
 NETWORKS = {
     "Arbitrum": {
-        "rpc": "https://arbitrum.llamarpc.com", # RPC Más estable
+        "rpc": "https://arbitrum-one-rpc.publicnode.com",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Ethereum Mainnet": {
-        "rpc": "https://eth.llamarpc.com", 
+        "rpc": "https://ethereum-rpc.publicnode.com", 
         "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
     },
     "Optimism": {
-        "rpc": "https://optimism.llamarpc.com", # Cambiado a LlamaRPC
+        "rpc": "https://optimism-rpc.publicnode.com",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Polygon (Matic)": {
-        "rpc": "https://polygon.llamarpc.com", # Cambiado a LlamaRPC
+        "rpc": "https://polygon-bor-rpc.publicnode.com",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Base": {
-        "rpc": "https://base.llamarpc.com", # ESTE ES EL CAMBIO CLAVE
+        # ESTE ES EL CAMBIO CLAVE: PublicNode suele ser mucho más estable para Base
+        "rpc": "https://base-rpc.publicnode.com", 
         "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f"
     },
     "Avalanche": {
-        "rpc": "https://avalanche.llamarpc.com", # Cambiado a LlamaRPC
+        "rpc": "https://avalanche-c-chain-rpc.publicnode.com",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     }
 }
@@ -427,4 +428,5 @@ with tab_onchain:
             except Exception as e:
                 st.error(f"Error conectando a {selected_network}: {e}")
                 st.info("Inténtalo de nuevo. Los nodos públicos a veces se saturan.")
+
 
