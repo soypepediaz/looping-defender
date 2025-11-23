@@ -9,24 +9,51 @@ st.set_page_config(page_title="Looping Master - Calculator & Backtest", layout="
 
 st.title("🛡️ Looping Master: Calculadora & Backtesting")
 
+# --- DICCIONARIO DE ACTIVOS (CONFIGURACIÓN) ---
+# Mapea el nombre amigable con el Ticker de Yahoo Finance
+ASSET_MAP = {
+    "Bitcoin (BTC)": "BTC-USD",
+    "Ethereum (ETH)": "ETH-USD",
+    "Solana (SOL)": "SOL-USD",
+    "Binance Coin (BNB)": "BNB-USD",
+    "Hyperliquid (HYPE)": "HYPE-USD", # Puede tener poco histórico
+    "XRP (XRP)": "XRP-USD",
+    "Dogecoin (DOGE)": "DOGE-USD",
+    "Cardano (ADA)": "ADA-USD",
+    "Avalanche (AVAX)": "AVAX-USD",
+    "Link (LINK)": "LINK-USD",
+    "✍️ Otro (Escribir manual)": "MANUAL"
+}
+
 # Usamos Tabs para separar la calculadora estática del backtest temporal
 tab_calc, tab_backtest = st.tabs(["🧮 Calculadora de Escenarios", "📉 Backtest Histórico"])
 
 # ==============================================================================
-#  PESTAÑA 1: CALCULADORA DE ESCENARIOS (Con Informe)
+#  PESTAÑA 1: CALCULADORA DE ESCENARIOS
 # ==============================================================================
 with tab_calc:
     st.markdown("### Simulador Estático de Defensa")
     
     # --- Inputs Calculadora ---
     col_input1, col_input2, col_input3 = st.columns(3)
+    
     with col_input1:
-        c_asset = st.text_input("Activo", value="WBTC", key="c_asset")
-        c_price = st.number_input("Precio Actual ($)", value=100000.0, step=100.0, key="c_price")
-        c_target = st.number_input("Precio Objetivo ($)", value=130000.0, step=100.0, key="c_target")
+        # Selector de activo
+        selected_asset_calc = st.selectbox("Seleccionar Activo", list(ASSET_MAP.keys()), key="sel_asset_c")
+        
+        if ASSET_MAP[selected_asset_calc] == "MANUAL":
+            c_asset_name = st.text_input("Escribe el Ticker o Nombre", value="PEPE", key="c_asset_man")
+        else:
+            # Extraemos solo el nombre (ej: BTC) para mostrar en el reporte
+            c_asset_name = selected_asset_calc.split("(")[1].replace(")", "")
+            
+        c_price = st.number_input(f"Precio Actual {c_asset_name} ($)", value=100000.0, step=100.0, key="c_price")
+        c_target = st.number_input(f"Precio Objetivo (Take Profit) ($)", value=130000.0, step=100.0, key="c_target")
+        
     with col_input2:
         c_capital = st.number_input("Capital Inicial ($)", value=10000.0, step=1000.0, key="c_capital")
         c_leverage = st.slider("Apalancamiento (x)", 1.1, 5.0, 2.0, 0.1, key="c_lev")
+        
     with col_input3:
         c_ltv = st.slider("LTV Liquidación (%)", 50, 95, 78, 1, key="c_ltv") / 100.0
         c_threshold = st.number_input("Umbral Defensa (%)", value=15.0, step=1.0, key="c_th") / 100.0
@@ -52,10 +79,8 @@ with tab_calc:
         trig_p = curr_liq * (1 + c_threshold)
         drop_pct = (c_price - trig_p) / c_price
         
-        # Objetivo: Restaurar ratio
         targ_liq = trig_p * c_target_ratio
         
-        # Colateral necesario
         need_col = c_debt_usd / (targ_liq * c_ltv)
         add_col = need_col - curr_collat
         cost = add_col * trig_p
@@ -64,7 +89,6 @@ with tab_calc:
         curr_collat += add_col
         total_inv = c_capital + cum_cost
         
-        # ROI al target
         final_val = curr_collat * c_target
         net_prof = (final_val - c_debt_usd) - total_inv
         roi = (net_prof / total_inv) * 100
@@ -93,12 +117,11 @@ with tab_calc:
         "ROI (%)": "{:.2f}%", "Ratio": "{:.2f}"
     }), use_container_width=True)
     
-    # --- INFORME EJECUTIVO RESTAURADO ---
+    # --- INFORME EJECUTIVO ---
     st.divider()
     if not df_calc.empty:
         last_row = df_calc.iloc[-1]
         
-        # Variables para el texto
         total_drop_txt = f"{last_row['Caída (%)']:.1%}"
         trigger_final_txt = f"${last_row['Precio Activación']:,.0f}"
         zones_txt = c_zones
@@ -109,36 +132,31 @@ with tab_calc:
         ratio_txt = f"{last_row['Ratio']:.2f}"
         
         report_markdown = f"""
-        ### 📝 Informe Ejecutivo de Estrategia: Looping con Defensa Activa
+        ### 📝 Informe Ejecutivo: Estrategia en {c_asset_name}
         
         **1. Configuración de Partida**
-        Has iniciado una operación de Looping en **{c_asset}** con un capital de **\${c_capital:,.0f}** y un apalancamiento de **{c_leverage}x**.
+        Has iniciado una operación de Looping en **{c_asset_name}** con un capital de **\${c_capital:,.0f}** y un apalancamiento de **{c_leverage}x**.
         Tu posición comenzó con un precio de liquidación de **\${c_liq_price:,.2f}**, lo que te daba un colchón de seguridad inicial del **{c_cushion_pct:.1%}**.
         
-        **2. Lógica de Defensa (Tu Seguro)**
-        Para evitar la liquidación, hemos establecido una estrategia de "Muro de Contención".
-        * **¿Cuándo actuamos?** Actuamos preventivamente cuando el precio se acerca (sube) un **{c_threshold:.1%}** sobre tu nivel de liquidación.
-        * **¿Qué hacemos?** Inyectamos más **{c_asset}** (colateral) a la posición.
-        * **¿El objetivo?** Restaurar la tranquilidad. Cada inyección empuja el precio de liquidación hacia abajo lo suficiente para recuperar el mismo margen de seguridad (**{c_cushion_pct:.1%}**) que tenías al principio.
+        **2. Estrategia de Defensa**
+        Actuamos preventivamente cuando el precio se acerca un **{c_threshold:.1%}** a la liquidación, inyectando más **{c_asset_name}** para recuperar el colchón de seguridad inicial.
         
-        **3. Análisis de Escenario Extremo (Zona #{zones_txt})**
-        En el peor escenario simulado, donde el mercado sufre una caída acumulada del **{total_drop_txt}** (llevando el precio de {c_asset} a **{trigger_final_txt}**):
-        * Habrás tenido que defender la posición **{zones_txt}** veces.
-        * Tu inversión total (Capital Inicial + Defensas) habrá ascendido a **{total_invested_txt}**.
-        * Tu nuevo precio de liquidación estaría blindado en **{new_liq_final_txt}**.
+        **3. Escenario Extremo (Zona #{zones_txt})**
+        Si el mercado cae un **{total_drop_txt}** (Precio {c_asset_name}: **{trigger_final_txt}**):
+        * Inversión total necesaria: **{total_invested_txt}**.
+        * Nuevo precio de liquidación blindado: **{new_liq_final_txt}**.
         
-        **4. Proyección de Rentabilidad (Risk/Reward)**
-        Si logras aguantar esta caída extrema y el mercado eventualmente rebota hasta tu objetivo de **\${c_target:,.0f}**:
-        * El valor de tu posición se disparará debido a la gran cantidad de colateral acumulado a precios bajos.
-        * Tu beneficio neto sería de **{net_profit_txt}**.
-        * Esto supone un retorno del **{roi_final_txt}** sobre todo el dinero invertido.
-        * **Ratio de Eficiencia:** Por cada 1% que el mercado cayó, tú recuperaste un **{ratio_txt}%** de beneficio en la subida.
+        **4. Rentabilidad Esperada**
+        Si tras esa caída el precio recupera hasta **\${c_target:,.0f}**:
+        * Beneficio Neto: **{net_profit_txt}**.
+        * ROI Total: **{roi_final_txt}**.
+        * Ratio Eficiencia: **{ratio_txt}**.
         """
         st.markdown(report_markdown)
 
 
 # ==============================================================================
-#  PESTAÑA 2: MOTOR DE BACKTESTING (Corregido)
+#  PESTAÑA 2: MOTOR DE BACKTESTING (Con Selector)
 # ==============================================================================
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica (Backtest)")
@@ -148,8 +166,16 @@ with tab_backtest:
     col_bt1, col_bt2, col_bt3 = st.columns(3)
     
     with col_bt1:
-        # Ticker compatible con Yahoo Finance (BTC-USD, ETH-USD)
-        bt_ticker = st.text_input("Ticker (Yahoo Finance)", value="BTC-USD")
+        # SELECTOR DE ACTIVO (MEJORADO)
+        selected_asset_bt = st.selectbox("Seleccionar Activo Histórico", list(ASSET_MAP.keys()), key="sel_asset_bt")
+        
+        # Lógica para determinar el Ticker final
+        if ASSET_MAP[selected_asset_bt] == "MANUAL":
+            bt_ticker = st.text_input("Escribe el Ticker de Yahoo Finance (ej: DOT-USD)", value="DOT-USD")
+        else:
+            bt_ticker = ASSET_MAP[selected_asset_bt]
+            st.info(f"Ticker seleccionado: `{bt_ticker}`")
+
         bt_capital = st.number_input("Capital Inicial ($)", value=10000.0, key="bt_cap")
     
     with col_bt2:
@@ -166,11 +192,12 @@ with tab_backtest:
             try:
                 # 1. Descarga de datos
                 df_hist = yf.download(bt_ticker, start=bt_start_date, end=date.today(), progress=False)
+                
                 if df_hist.empty:
-                    st.error("No se encontraron datos. Revisa el Ticker (ej: BTC-USD).")
+                    st.error(f"⚠️ No se encontraron datos para {bt_ticker}. Puede que el activo sea muy nuevo o el ticker sea incorrecto.")
                     st.stop()
                 
-                # Aplanar columnas si es MultiIndex
+                # Aplanar columnas
                 if isinstance(df_hist.columns, pd.MultiIndex):
                     df_hist.columns = df_hist.columns.get_level_values(0)
 
@@ -180,7 +207,7 @@ with tab_backtest:
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
                 
-                ltv_liq = c_ltv # Usamos el LTV definido en la pestaña 1
+                ltv_liq = c_ltv 
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
                 
                 target_ratio = liq_price / start_price 
@@ -192,6 +219,9 @@ with tab_backtest:
                 
                 # 3. Bucle
                 for date_idx, row in df_hist.iterrows():
+                    # Manejo seguro de NaN
+                    if pd.isna(row['Close']): continue
+
                     high = float(row['High'])
                     low = float(row['Low'])
                     close = float(row['Close'])
@@ -246,6 +276,10 @@ with tab_backtest:
                         break
                 
                 # 4. Resultados
+                if not history:
+                    st.error("No hay suficientes datos históricos para generar el backtest.")
+                    st.stop()
+
                 df_res = pd.DataFrame(history)
                 df_res.set_index("Fecha", inplace=True)
                 
@@ -259,8 +293,8 @@ with tab_backtest:
                 kpi3.metric("ROI Estrategia", f"{final_roi_strat:.2f}%", f"${last_row['Valor Estrategia']:,.0f}")
                 kpi4.metric("ROI HODL", f"{final_roi_hodl:.2f}%", delta=f"{final_roi_strat - final_roi_hodl:.2f}% vs Strat")
 
-                # --- GRÁFICO (CORREGIDO) ---
-                st.markdown("##### 📈 Evolución del Patrimonio")
+                # --- GRÁFICO ---
+                st.markdown(f"##### 📈 Evolución con {bt_ticker}")
                 fig = go.Figure()
                 
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor Estrategia"], 
@@ -274,7 +308,6 @@ with tab_backtest:
 
                 defense_events = df_res[df_res["Acción"].str.contains("DEFENSA")]
                 if not defense_events.empty:
-                    # AQUÍ ESTABA EL ERROR: He cambiado 'shield' por 'diamond'
                     fig.add_trace(go.Scatter(x=defense_events.index, y=defense_events["Valor Estrategia"],
                                              mode='markers', name='Inyección Defensa', marker=dict(color='orange', size=12, symbol='diamond')))
 
@@ -285,4 +318,4 @@ with tab_backtest:
                     st.dataframe(defense_events[["Precio Cierre", "Liq Price", "Inversión Acumulada", "Valor Estrategia"]].style.format("${:,.2f}"), use_container_width=True)
 
             except Exception as e:
-                st.error(f"Error técnico: {e}")
+                st.error(f"Error durante el proceso: {e}")
