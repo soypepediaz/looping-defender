@@ -1,125 +1,153 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 
 # --- Configuración de la Página ---
-st.set_page_config(page_title="DeFi Looping - Collateral Defense", layout="wide")
+st.set_page_config(page_title="Looping Defense - Cascade", layout="wide")
 
-st.title("🛡️ Calculadora Looping: Defensa con Colateral")
+st.title("🛡️ Estrategia de Defensa en Cascada (Looping)")
 st.markdown("""
-Esta herramienta simula una estrategia de **Looping Long** donde la defensa ante caídas
-se realiza **añadiendo más del mismo activo** (ej. añadir más WBTC al depósito).
+Esta herramienta simula una defensa secuencial. Cuando el precio se acerca a la liquidación, 
+se inyecta colateral para **restaurar el colchón de seguridad original**.
 """)
 
 # --- Barra Lateral: Parámetros ---
-st.sidebar.header("1. Configuración de la Posición")
-
-asset_name = st.sidebar.text_input("Activo (Ticker)", value="WBTC")
-current_price = st.sidebar.number_input(f"Precio Actual {asset_name} ($)", value=65000.0, step=100.0)
+st.sidebar.header("1. Posición Inicial")
+asset_name = st.sidebar.text_input("Activo", value="WBTC")
+initial_price = st.sidebar.number_input(f"Precio Inicial {asset_name} ($)", value=100000.0, step=100.0)
 initial_capital = st.sidebar.number_input("Capital Inicial ($)", value=10000.0, step=1000.0)
 
-st.sidebar.header("2. Parámetros del Protocolo")
-leverage = st.sidebar.slider("Apalancamiento (x)", min_value=1.1, max_value=5.0, value=3.0, step=0.1)
-liq_threshold = st.sidebar.slider("Umbral de Liquidación (LT %)", min_value=60, max_value=95, value=82, step=1) / 100
+st.sidebar.header("2. Protocolo & Riesgo")
+leverage = st.sidebar.slider("Apalancamiento (x)", 1.1, 5.0, 2.0, 0.1)
+ltv_liq = st.sidebar.slider("LTV de Liquidación (%)", 50, 95, 78, 1) / 100.0
 
-# --- CÁLCULOS BASE ---
-# Colateral Total = Capital * Leverage
-total_collateral_usd = initial_capital * leverage
-# Deuda = Colateral Total - Capital Inicial
-total_debt_usd = total_collateral_usd - initial_capital
+st.sidebar.header("3. Estrategia de Defensa")
+defense_threshold_pct = st.sidebar.number_input("Umbral de Protección (%)", value=15.0, step=1.0, help="Porcentaje por encima del precio de liquidación donde actúas.") / 100.0
+num_zones = st.sidebar.slider("Número de Zonas de Defensa", 1, 10, 5)
 
-# Cantidad de tokens (ej. BTC) en la posición inicial
-amount_asset_initial = total_collateral_usd / current_price
+# --- CÁLCULOS INICIALES ---
+initial_collateral_usd = initial_capital * leverage
+initial_debt_usd = initial_collateral_usd - initial_capital
+initial_collateral_amt = initial_collateral_usd / initial_price
 
-# Precio de Liquidación Inicial
-# P_liq = Deuda / (Cantidad_Activo * LT)
-if amount_asset_initial > 0:
-    liq_price_initial = total_debt_usd / (amount_asset_initial * liq_threshold)
-else:
-    liq_price_initial = 0
+# Precio Liquidación Inicial
+# P_liq = Debt / (Colateral_Amt * LT)
+liq_price_start = initial_debt_usd / (initial_collateral_amt * ltv_liq)
 
-# HF Actual
-if total_debt_usd > 0:
-    hf_initial = (total_collateral_usd * liq_threshold) / total_debt_usd
-else:
-    hf_initial = 0
+# Colchón Inicial (Target Ratio)
+# Este es el ratio que intentaremos mantener en cada defensa.
+# Si P_liq es 64k y Precio es 100k, el ratio es 0.641. Queremos mantener esa proporción.
+target_ratio = liq_price_start / initial_price
+initial_cushion_pct = (initial_price - liq_price_start) / initial_price
 
-# --- VISUALIZACIÓN SUPERIOR ---
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Posición Total (USD)", f"${total_collateral_usd:,.0f}", f"{amount_asset_initial:.4f} {asset_name}")
-col2.metric("Deuda Total (USD)", f"${total_debt_usd:,.0f}")
-col3.metric("Precio Liquidación", f"${liq_price_initial:,.2f}", delta_color="inverse",
-            delta=f"{(current_price - liq_price_initial)/current_price:.1%} distancia")
-col4.metric("Health Factor", f"{hf_initial:.2f}", 
-            delta="Riesgo" if hf_initial < 1.1 else "Ok", delta_color="normal" if hf_initial >= 1.1 else "inverse")
-
+# --- VISUALIZACIÓN ESTADO 0 ---
 st.divider()
+c1, c2, c3, c4 = st.columns(4)
+c1.metric("Colateral Inicial", f"{initial_collateral_amt:.4f} {asset_name}")
+c2.metric("Deuda Total", f"${initial_debt_usd:,.0f}")
+c3.metric("Precio Liq. Inicial", f"${liq_price_start:,.2f}")
+c4.metric("Colchón Objetivo", f"{initial_cushion_pct:.2%}", help=f"Intentaremos restaurar este margen de seguridad en cada caída.")
 
-# --- LÓGICA DE DEFENSA (AÑADIR COLATERAL) ---
-st.subheader(f"🛡️ Estrategia: Defender añadiendo {asset_name}")
-st.info(f"Al añadir {asset_name} como colateral, el cálculo tiene en cuenta que tu 'escudo' vale menos cuando el precio baja.")
+# --- MOTOR DE CÁLCULO EN CASCADA ---
+cascade_data = []
 
-defense_data = []
-niveles = range(15, 80, 5) # De 15% a 75% de distancia
+# Variables que irán mutando en el bucle
+current_collateral_amt = initial_collateral_amt
+current_liq_price = liq_price_start
+cumulative_cost_usd = 0.0
 
-for dist_pct in niveles:
-    # 1. Definimos el Precio Objetivo de Liquidación (Target Price)
-    # "Quiero que mi nuevo precio de liquidación esté un X% abajo del precio ACTUAL"
-    target_liq_price = current_price * (1 - (dist_pct / 100))
+for i in range(1, num_zones + 1):
+    # 1. ¿A qué precio salta la alarma? (Precio Trigger)
+    trigger_price = current_liq_price * (1 + defense_threshold_pct)
     
-    # 2. La Matemática
-    # Fórmula Liq: P_target = Deuda / ( (Tokens_Iniciales + Tokens_Extra) * LT )
-    # Despejamos Tokens_Extra:
-    # Tokens_Extra = ( Deuda / (P_target * LT) ) - Tokens_Iniciales
+    # 2. ¿Cuál es nuestro objetivo de Nuevo Precio de Liquidación?
+    # Queremos restaurar el colchón original RELATIVO al precio del trigger.
+    target_liq_price = trigger_price * target_ratio
     
-    if target_liq_price > 0:
-        required_total_tokens = total_debt_usd / (target_liq_price * liq_threshold)
-        tokens_to_add = required_total_tokens - amount_asset_initial
-    else:
-        tokens_to_add = 0
-        
-    # Si sale negativo, significa que ya estamos cubiertos para ese nivel
-    if tokens_to_add < 0:
-        tokens_to_add = 0
-
-    # Costo en USD hoy (lo que te cuesta comprar esos tokens AHORA para depositarlos)
-    cost_now_usd = tokens_to_add * current_price
+    # 3. ¿Cuánto colateral EXTRA necesitamos para bajar el Liq Price a ese target?
+    # Fórmula derivada: Col_Total_Needed = Debt / (Target_Liq * LT)
+    needed_total_collateral = initial_debt_usd / (target_liq_price * ltv_liq)
+    collateral_to_add = needed_total_collateral - current_collateral_amt
     
-    # Nuevo HF AHORA (si añades el colateral hoy al precio actual)
-    new_collateral_usd = (amount_asset_initial + tokens_to_add) * current_price
-    new_hf_now = (new_collateral_usd * liq_threshold) / total_debt_usd
-
-    defense_data.append({
-        "Distancia Deseada": f"{dist_pct}%",
-        "Nuevo Precio Liq.": target_liq_price,
-        f"Añadir {asset_name}": tokens_to_add,
-        "Costo Hoy ($)": cost_now_usd,
-        "% vs Capital Inicial": (cost_now_usd / initial_capital) * 100,
-        "Nuevo HF (Hoy)": new_hf_now
+    # Costo de esa inyección (al precio de mercado del momento, que es el Trigger Price)
+    cost_injection = collateral_to_add * trigger_price
+    
+    # Actualizar acumulados
+    cumulative_cost_usd += cost_injection
+    current_collateral_amt += collateral_to_add # El nuevo total de colateral
+    
+    # Guardar datos de esta zona
+    cascade_data.append({
+        "Zona": f"Defensa #{i}",
+        "Precio Activación ($)": trigger_price,
+        "Colateral a Añadir": collateral_to_add,
+        "Costo Inyección ($)": cost_injection,
+        "Nuevo Precio Liq. ($)": target_liq_price,
+        "Total Acumulado ($)": cumulative_cost_usd
     })
+    
+    # El nuevo precio de liquidación se convierte en el actual para la siguiente iteración
+    current_liq_price = target_liq_price
 
-df = pd.DataFrame(defense_data)
+# Crear DataFrame
+df_cascade = pd.DataFrame(cascade_data)
 
-# --- MOSTRAR TABLA Y GRÁFICO ---
-c_table, c_chart = st.columns([4, 5])
+# --- RESULTADOS VISUALES ---
+st.divider()
+st.subheader("📍 Plan de Defensa Escalonado")
 
-with c_table:
-    st.markdown("#### Tabla de Necesidades")
-    st.dataframe(df.style.format({
-        "Nuevo Precio Liq.": "${:,.2f}",
-        f"Añadir {asset_name}": "{:.4f}",
-        "Costo Hoy ($)": "${:,.0f}",
-        "% vs Capital Inicial": "{:.1f}%",
-        "Nuevo HF (Hoy)": "{:.2f}"
+col_left, col_right = st.columns([1.5, 2])
+
+with col_left:
+    # Tabla formateada
+    st.markdown("##### Detalle de Zonas")
+    st.dataframe(df_cascade.style.format({
+        "Precio Activación ($)": "${:,.2f}",
+        "Colateral a Añadir": "{:.4f}",
+        "Costo Inyección ($)": "${:,.2f}",
+        "Nuevo Precio Liq. ($)": "${:,.2f}",
+        "Total Acumulado ($)": "${:,.2f}"
     }), hide_index=True, use_container_width=True)
+    
+    # Métricas finales
+    total_needed = df_cascade["Total Acumulado ($)"].iloc[-1]
+    last_liq_price = df_cascade["Nuevo Precio Liq. ($)"].iloc[-1]
+    
+    st.info(f"""
+    **Resumen Estratégico:**
+    Para sobrevivir a una caída hasta **${last_liq_price:,.0f}**, necesitas una reserva total de **${total_needed:,.0f}**.
+    Esto representa un **{(total_needed/initial_capital)*100:.1f}%** de tu capital inicial.
+    """)
 
-with c_chart:
-    st.markdown(f"#### Costo de Defensa ({asset_name})")
-    if not df.empty and df["Costo Hoy ($)"].sum() > 0:
-        fig = px.line(df, x="Distancia Deseada", y="Costo Hoy ($)", 
-                      markers=True, title=f"Capital ($) necesario para defender {asset_name}",
-                      labels={"Distancia Deseada": "Distancia de Seguridad (%)", "Costo Hoy ($)": "Inversión Necesaria ($)"})
-        fig.update_layout(yaxis_tickformat="$,.0f")
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.success("Tu posición actual ya es segura para estos niveles.")
+with col_right:
+    # Gráfico de Escalera (Waterfall)
+    st.markdown("##### Evolución del Precio de Liquidación")
+    
+    fig = go.Figure()
+    
+    # Línea de Precio de Mercado (Trigger)
+    fig.add_trace(go.Scatter(
+        x=df_cascade["Zona"], 
+        y=df_cascade["Precio Activación ($)"],
+        mode='lines+markers',
+        name='Precio de Mercado (Trigger)',
+        line=dict(color='orange', dash='dash')
+    ))
+    
+    # Línea de Precio de Liquidación (que vamos empujando hacia abajo)
+    fig.add_trace(go.Scatter(
+        x=df_cascade["Zona"], 
+        y=df_cascade["Nuevo Precio Liq. ($)"],
+        mode='lines+markers',
+        name='Nuevo Precio Liquidación',
+        line=dict(color='green', width=3),
+        fill='tonexty', # Relleno para visualizar el "Colchón"
+        fillcolor='rgba(0, 255, 0, 0.1)'
+    ))
+
+    fig.update_layout(
+        title="Ampliación del Margen de Seguridad",
+        yaxis_title="Precio del Activo ($)",
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig, use_container_width=True)
