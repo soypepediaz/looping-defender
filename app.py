@@ -156,4 +156,5 @@ with st.expander("Ver Gráfico de Niveles", expanded=False):
     fig.add_trace(go.Scatter(x=df_cascade["Zona"], y=[target_price]*len(df_cascade),
                              name='Precio Objetivo', line=dict(color='green', width=4)))
 
-    fig.update_layout(title="Mapa de Precios: Caída vs Liquidación vs
+    fig.update_layout(title="Mapa de Precios: Caída vs Liquidación vs Objetivo", hovermode="x unified")
+    st.plotly_chart(fig, use_container_width=True)
