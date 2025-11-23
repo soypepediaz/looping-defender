@@ -6,55 +6,71 @@ from datetime import date, timedelta
 from web3 import Web3
 import requests
 
-# ==============================================================================
-#  CONFIGURACIÓN DE LA PÁGINA
-# ==============================================================================
-st.set_page_config(page_title="Looping Master - Final", layout="wide")
+# --- Configuración de la Página ---
+st.set_page_config(page_title="Looping Master - Portfolio Pro", layout="wide")
 
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # ==============================================================================
-#  1. CONFIGURACIÓN DE REDES (MODO ADDRESS PROVIDER)
+#  1. CONFIGURACIÓN DE REDES Y CONTRATOS
 # ==============================================================================
-# Usamos los RPCs más estables y la dirección del 'PoolAddressesProvider' (El Jefe)
-# para obtener siempre la dirección correcta del Pool dinámicamente.
 
+# Diccionario de Redes: RPCs robustos y Dirección del AddressProvider ("El Jefe")
+# Usamos el AddressProvider para obtener dinámicamente la dirección del Pool correcta.
 NETWORKS = {
     "Base": {
         "chain_id": 8453,
-        "rpcs": ["https://base.drpc.org", "https://mainnet.base.org"],
+        "rpcs": [
+            "https://base.drpc.org",
+            "https://mainnet.base.org", 
+            "https://base-rpc.publicnode.com"
+        ],
         "pool_provider": "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"
     },
     "Arbitrum": {
         "chain_id": 42161,
-        "rpcs": ["https://arb1.arbitrum.io/rpc", "https://rpc.ankr.com/arbitrum"],
+        "rpcs": [
+            "https://arb1.arbitrum.io/rpc",
+            "https://rpc.ankr.com/arbitrum"
+        ],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Ethereum": {
         "chain_id": 1,
-        "rpcs": ["https://eth.llamarpc.com", "https://rpc.ankr.com/eth"], 
+        "rpcs": [
+            "https://eth.llamarpc.com",
+            "https://rpc.ankr.com/eth"
+        ], 
         "pool_provider": "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"
     },
     "Optimism": {
         "chain_id": 10,
-        "rpcs": ["https://mainnet.optimism.io", "https://rpc.ankr.com/optimism"],
+        "rpcs": [
+            "https://mainnet.optimism.io",
+            "https://rpc.ankr.com/optimism"
+        ],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Polygon": {
         "chain_id": 137,
-        "rpcs": ["https://polygon-rpc.com", "https://rpc.ankr.com/polygon"],
+        "rpcs": [
+            "https://polygon-rpc.com",
+            "https://rpc.ankr.com/polygon"
+        ],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Avalanche": {
         "chain_id": 43114,
-        "rpcs": ["https://api.avax.network/ext/bc/C/rpc"],
+        "rpcs": [
+            "https://api.avax.network/ext/bc/C/rpc"
+        ],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     }
 }
 
 # ABI LIGERO (Solo lo necesario para conectar y leer totales)
 AAVE_ABI = [
-    # Función para preguntar al Provider dónde está el Pool
+    # 1. Función para preguntar al Provider dónde está el Pool
     {
         "inputs": [],
         "name": "getPool",
@@ -62,7 +78,7 @@ AAVE_ABI = [
         "stateMutability": "view",
         "type": "function"
     },
-    # Función ligera getUserAccountData (Devuelve totales en USD base)
+    # 2. Función ligera getUserAccountData (Devuelve totales en USD base)
     {
         "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
         "name": "getUserAccountData",
@@ -95,23 +111,23 @@ ASSET_MAP = {
 # ==============================================================================
 
 def get_web3_session(rpc_url):
-    """Crea una sesión Web3 disfrazada de navegador Chrome"""
+    """Crea una sesión Web3 disfrazada de navegador Chrome para evitar bloqueos"""
     s = requests.Session()
     s.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
-    # Timeout de 30s es suficiente para llamadas ligeras
-    return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 30}))
+    # Timeout de 60s es suficiente para llamadas ligeras
+    return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60}))
 
 def connect_robust(network_name):
     """Intenta conectar rotando RPCs y priorizando Secrets"""
     config = NETWORKS[network_name]
-    rpcs = config["rpcs"][:] # Copia de la lista
+    rpcs = config["rpcs"][:] # Copia de la lista para no modificar la original
     
     secret_key = f"{network_name.upper()}_RPC_URL"
     used_private = False
     
-    # Inyectar secreto si existe
+    # Inyectar secreto (Alchemy/Infura) si existe en los Secrets de Streamlit
     if secret_key in st.secrets:
         private_rpc = st.secrets[secret_key].strip().replace('"', '').replace("'", "")
         rpcs.insert(0, private_rpc)
@@ -121,6 +137,7 @@ def connect_robust(network_name):
         try:
             w3 = get_web3_session(rpc)
             if w3.is_connected():
+                # Verificación extra de Chain ID
                 if w3.eth.chain_id == config["chain_id"]:
                     return w3, rpc, used_private
         except: 
@@ -170,7 +187,9 @@ with tab_calc:
         c_target_ratio = c_liq_price / c_price 
         c_cushion_pct = (c_price - c_liq_price) / c_price
     else:
-        c_liq_price = 0; c_target_ratio = 0; c_cushion_pct = 0
+        c_liq_price = 0
+        c_target_ratio = 0
+        c_cushion_pct = 0
     
     # Generación de tabla en cascada
     cascade_data = []
@@ -425,13 +444,12 @@ with tab_onchain:
                                 curr_p = yf.Ticker(ticker).history(period="1d")['Close'].iloc[-1]
                                 st.metric(f"Precio Mercado ({ticker})", f"${curr_p:,.2f}")
                                 
-                                # Ingeniería inversa: Asumimos que todo el colateral es de este activo
+                                # Ingeniería inversa
                                 implied_amt = col_usd / curr_p
                                 liq_price_real = debt_usd / (implied_amt * lt_avg)
                                 cushion = (curr_p - liq_price_real) / curr_p
                                 st.metric("Precio Liquidación Actual", f"${liq_price_real:,.2f}", f"{cushion:.2%} Colchón")
                                 
-                                # Generar tabla detallada
                                 ratio_target = liq_price_real / curr_p
                                 s_data = []
                                 s_curr_c, s_curr_l, s_cum = implied_amt, liq_price_real, 0.0
@@ -439,31 +457,28 @@ with tab_onchain:
                                 for i in range(1, zones+1):
                                     trig = s_curr_l * (1 + def_th)
                                     targ = trig * ratio_target
-                                    need_usd = debt_usd / (targ * lt_avg)
-                                    # need_usd es la DEUDA MAXIMA permitida. Pero queremos colateral.
-                                    # Formula: Colateral_Nuevo * LT * Precio = Deuda
-                                    # Colateral_Nuevo = Deuda / (LT * Precio)
-                                    # Pero aquí inyectamos colateral.
                                     
-                                    # FORMA SIMPLE DE PESTAÑA 1:
-                                    # Need_Debt = (Amt + Add) * P * LT
-                                    # Add = (Debt / (P * LT)) - Amt
-                                    add_tokens = (debt_usd / (trig * lt_avg)) - s_curr_c
-                                    if add_tokens < 0: add_tokens = 0
+                                    # Cantidad necesaria para bajar liquidación al target
+                                    # Debt / (New_Amt * LT) = Targ -> New_Amt = Debt / (Targ * LT)
+                                    needed_amt = debt_usd / (targ * lt_avg)
+                                    add_amt = max(0, needed_amt - s_curr_c)
                                     
-                                    cost_usd = add_tokens * trig
+                                    cost_usd = add_amt * trig # Costo al precio del trigger
                                     s_cum += cost_usd
-                                    s_curr_c += add_tokens
+                                    s_curr_c += add_amt
                                     
                                     # Nuevo HF
-                                    # HF = (Col * LT) / Debt
-                                    new_col_usd = s_curr_c * trig # Valor al precio del trigger
+                                    new_col_usd = s_curr_c * trig
                                     new_hf = (new_col_usd * lt_avg) / debt_usd
                                     
                                     s_data.append({
-                                        "Zona": f"#{i}", "Precio Activación": trig, 
-                                        "Inyectar (Tokens)": add_tokens, "Costo ($)": cost_usd, 
-                                        "Acumulado ($)": s_cum, "Nuevo Liq": targ, "Nuevo HF": new_hf
+                                        "Zona": f"#{i}", 
+                                        "Precio Activación": trig, 
+                                        "Inyectar (Tokens)": add_amt, 
+                                        "Costo ($)": cost_usd, 
+                                        "Acumulado ($)": s_cum, 
+                                        "Nuevo Liq": targ, 
+                                        "Nuevo HF": new_hf
                                     })
                                     s_curr_l = targ
                                     
@@ -476,7 +491,7 @@ with tab_onchain:
                             except Exception as ex:
                                 st.error(f"Error precio: {ex}")
 
-                        # MODO B: MULTI-COLATERAL (Porcentajes)
+                        # MODO B: MULTI-COLATERAL
                         else:
                             st.info("Cálculo basado en caída porcentual global.")
                             max_drop = 1 - (debt_usd / (col_usd * lt_avg)) if (col_usd*lt_avg)>0 else 0
@@ -498,8 +513,10 @@ with tab_onchain:
                                 final_hf = (shock_col * lt_avg) / (debt_usd - need) if (debt_usd-need)>0 else 999
                                 
                                 sim.append({
-                                    "Caída Mercado": f"-{d}%", "HF Riesgo": f"{shock_hf:.2f}", 
-                                    "Inyectar (USDC)": need, "Nuevo HF": f"{final_hf:.2f}"
+                                    "Caída Mercado": f"-{d}%", 
+                                    "HF Riesgo": f"{shock_hf:.2f}", 
+                                    "Inyectar (USDC)": need, 
+                                    "Nuevo HF": f"{final_hf:.2f}"
                                 })
                                 
                             st.dataframe(pd.DataFrame(sim).style.format({"Inyectar (USDC)": "${:,.2f}"}).background_gradient(subset=["Inyectar (USDC)"], cmap="Reds"), use_container_width=True)
