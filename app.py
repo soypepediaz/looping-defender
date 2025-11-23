@@ -14,6 +14,95 @@ st.set_page_config(
     layout="wide"
 )
 
+# ... (Imports y set_page_config arriba) ...
+
+# ==============================================================================
+#  ESTRUCTURA DE NAVEGACIÓN (NUEVA)
+# ==============================================================================
+
+# Creamos 4 pestañas en lugar de 3
+tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
+    "🏠 Inicio & Campamento", 
+    "🧮 Calculadora", 
+    "📉 Backtest", 
+    "📡 Escáner Real"
+])
+
+# ==============================================================================
+#  PESTAÑA 0: PORTADA / LANDING PAGE (MARKETING)
+# ==============================================================================
+with tab_home:
+    # 1. HERO SECTION
+    col_hero_L, col_hero_R = st.columns([2, 1])
+    
+    with col_hero_L:
+        st.title("🛡️ Domina el Looping en DeFi")
+        st.markdown("""
+        ### Maximiza tus rendimientos sin morir en el intento.
+        
+        Bienvenido a **Looping Master**, la herramienta definitiva para analizar, proyectar y 
+        defender tus posiciones apalancadas en Aave y otros protocolos.
+        
+        **¿Qué puedes hacer aquí?**
+        * 🧮 **Calcular:** Proyecta rentabilidades y puntos de liquidación.
+        * 📉 **Validar:** Haz Backtesting con datos históricos reales.
+        * 📡 **Escanear:** Audita tu cartera real en Blockchain y simula "Crash Tests".
+        """)
+        
+        st.info("💡 **Tip:** Usa las pestañas de arriba para navegar por las herramientas.")
+
+    with col_hero_R:
+        # Aquí podrías poner una imagen o logo del Campamento DeFi
+        st.markdown("### ⛺ Campamento DeFi")
+        st.markdown("Tu comunidad de Estrategias On-Chain.")
+        st.metric("Nivel de Riesgo", "Gestionado", delta="Alto Rendimiento")
+
+    st.divider()
+
+    # 2. SECCIÓN DE CAPTACIÓN (LEAD MAGNET)
+    st.markdown("### 🚀 ¿Quieres recibir más estrategias como esta?")
+    
+    c_form_1, c_form_2 = st.columns([3, 2])
+    
+    with c_form_1:
+        st.markdown("""
+        Esta herramienta es solo la punta del iceberg. En el **Campamento DeFi** compartimos:
+        - Estrategias de Yield Farming avanzadas.
+        - Alertas de seguridad y gestión de riesgo.
+        - Herramientas exclusivas para miembros.
+        
+        **Únete gratis a nuestra Newsletter y recibe el "Manual de Supervivencia DeFi".**
+        """)
+        
+    with c_form_2:
+        with st.form("email_form"):
+            st.write("**Suscríbete al Campamento:**")
+            name_input = st.text_input("Nombre", placeholder="Satoshi Nakamoto")
+            email_input = st.text_input("Tu mejor Email", placeholder="satoshi@bitcoin.org")
+            
+            # Botón de envío
+            submitted = st.form_submit_button("📩 Unirme y Recibir Manual", type="primary")
+            
+            if submitted:
+                if email_input:
+                    # AQUÍ CONECTAREMOS CON MOOSEND LUEGO
+                    st.success(f"¡Bienvenido al Campamento, {name_input}! Revisa tu bandeja de entrada.")
+                    st.balloons()
+                else:
+                    st.error("Por favor, introduce un email válido.")
+
+    st.divider()
+    
+    # 3. FOOTER / DISCLAIMER
+    st.caption("""
+    **Disclaimer:** Esta herramienta es solo para fines educativos y de simulación. 
+    DeFi conlleva riesgos elevados. Haz siempre tu propia investigación (DYOR). 
+    Desarrollado con ❤️ por el equipo de Campamento DeFi.
+    """)
+
+# ... (Aquí iría el resto del código: NETWORKS, Funciones y el contenido de las otras tabs) ...
+
+
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # ==============================================================================
@@ -639,3 +728,4 @@ with tab_onchain:
                     )
         else:
             st.success("Sin deuda activa.")
+
