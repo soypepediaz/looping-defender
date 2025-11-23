@@ -10,13 +10,12 @@ st.set_page_config(page_title="Looping Master - Calculator & Backtest", layout="
 st.title("🛡️ Looping Master: Calculadora & Backtesting")
 
 # --- DICCIONARIO DE ACTIVOS (CONFIGURACIÓN) ---
-# Mapea el nombre amigable con el Ticker de Yahoo Finance
 ASSET_MAP = {
     "Bitcoin (BTC)": "BTC-USD",
     "Ethereum (ETH)": "ETH-USD",
     "Solana (SOL)": "SOL-USD",
     "Binance Coin (BNB)": "BNB-USD",
-    "Hyperliquid (HYPE)": "HYPE-USD", # Puede tener poco histórico
+    "Hyperliquid (HYPE)": "HYPE-USD", 
     "XRP (XRP)": "XRP-USD",
     "Dogecoin (DOGE)": "DOGE-USD",
     "Cardano (ADA)": "ADA-USD",
@@ -44,7 +43,6 @@ with tab_calc:
         if ASSET_MAP[selected_asset_calc] == "MANUAL":
             c_asset_name = st.text_input("Escribe el Ticker o Nombre", value="PEPE", key="c_asset_man")
         else:
-            # Extraemos solo el nombre (ej: BTC) para mostrar en el reporte
             c_asset_name = selected_asset_calc.split("(")[1].replace(")", "")
             
         c_price = st.number_input(f"Precio Actual {c_asset_name} ($)", value=100000.0, step=100.0, key="c_price")
@@ -156,7 +154,7 @@ with tab_calc:
 
 
 # ==============================================================================
-#  PESTAÑA 2: MOTOR DE BACKTESTING (Con Selector)
+#  PESTAÑA 2: MOTOR DE BACKTESTING (Con Datos Iniciales)
 # ==============================================================================
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica (Backtest)")
@@ -166,10 +164,9 @@ with tab_backtest:
     col_bt1, col_bt2, col_bt3 = st.columns(3)
     
     with col_bt1:
-        # SELECTOR DE ACTIVO (MEJORADO)
+        # SELECTOR DE ACTIVO
         selected_asset_bt = st.selectbox("Seleccionar Activo Histórico", list(ASSET_MAP.keys()), key="sel_asset_bt")
         
-        # Lógica para determinar el Ticker final
         if ASSET_MAP[selected_asset_bt] == "MANUAL":
             bt_ticker = st.text_input("Escribe el Ticker de Yahoo Finance (ej: DOT-USD)", value="DOT-USD")
         else:
@@ -202,6 +199,7 @@ with tab_backtest:
                     df_hist.columns = df_hist.columns.get_level_values(0)
 
                 # 2. Inicialización
+                start_date_actual = df_hist.index[0].date()
                 start_price = float(df_hist.iloc[0]['Close']) 
                 collateral_usd = bt_capital * bt_leverage
                 debt_usd = collateral_usd - bt_capital 
@@ -219,7 +217,6 @@ with tab_backtest:
                 
                 # 3. Bucle
                 for date_idx, row in df_hist.iterrows():
-                    # Manejo seguro de NaN
                     if pd.isna(row['Close']): continue
 
                     high = float(row['High'])
@@ -252,7 +249,7 @@ with tab_backtest:
                                 liq_price = target_liq_new 
                                 action = "DEFENSA 🛡️"
                     
-                    # B. Check Liquidación Post-Defensa
+                    # B. Check Liquidación
                     if low <= liq_price and not is_liquidated:
                          is_liquidated = True
                          liquidated_date = date_idx
@@ -277,7 +274,7 @@ with tab_backtest:
                 
                 # 4. Resultados
                 if not history:
-                    st.error("No hay suficientes datos históricos para generar el backtest.")
+                    st.error("No hay suficientes datos.")
                     st.stop()
 
                 df_res = pd.DataFrame(history)
@@ -296,13 +293,10 @@ with tab_backtest:
                 # --- GRÁFICO ---
                 st.markdown(f"##### 📈 Evolución con {bt_ticker}")
                 fig = go.Figure()
-                
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor Estrategia"], 
                                          mode='lines', name='Valor Estrategia', line=dict(color='green', width=2), fill='tozeroy', fillcolor='rgba(0, 255, 0, 0.1)'))
-                
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Inversión Acumulada"], 
                                          mode='lines', name='Total Invertido', line=dict(color='red', dash='dash')))
-                
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor HODL"], 
                                          mode='lines', name='Valor HODL', line=dict(color='gray', width=1)))
 
@@ -310,12 +304,24 @@ with tab_backtest:
                 if not defense_events.empty:
                     fig.add_trace(go.Scatter(x=defense_events.index, y=defense_events["Valor Estrategia"],
                                              mode='markers', name='Inyección Defensa', marker=dict(color='orange', size=12, symbol='diamond')))
-
                 st.plotly_chart(fig, use_container_width=True)
                 
+                # --- NUEVA SECCIÓN: DATOS DE ENTRADA ---
+                st.divider()
+                st.subheader("🏁 Datos de Entrada (Operación Inicial)")
+                
+                col_d1, col_d2, col_d3, col_d4 = st.columns(4)
+                col_d1.metric("Fecha Inicio", str(start_date_actual))
+                col_d2.metric("Precio Entrada", f"${start_price:,.2f}")
+                col_d3.metric("Colateral Inicial", f"{collateral_amt:.4f}", f"Valor: ${collateral_usd:,.0f}")
+                col_d4.metric("Deuda Inicial", f"${debt_usd:,.0f}")
+
+                # --- TABLA DE DEFENSAS ---
                 if not defense_events.empty:
                     st.markdown("##### 🛡️ Detalle de Defensas")
                     st.dataframe(defense_events[["Precio Cierre", "Liq Price", "Inversión Acumulada", "Valor Estrategia"]].style.format("${:,.2f}"), use_container_width=True)
+                else:
+                    st.success("La estrategia no requirió defensas en este periodo.")
 
             except Exception as e:
                 st.error(f"Error durante el proceso: {e}")
