@@ -4,7 +4,9 @@ import plotly.graph_objects as go
 import yfinance as yf
 from datetime import date, timedelta
 from web3 import Web3
-from web3.middleware import geth_poa_middleware # <--- IMPORTANTE
+# --- ACTUALIZACIÓN PARA WEB3 v7 ---
+# El middleware antiguo se ha renombrado. Usamos el nuevo estándar.
+from web3.middleware import ExtraDataToPOAMiddleware 
 
 # --- Configuración de la Página ---
 st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
@@ -12,7 +14,7 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # --- CONFIGURACIÓN MULTI-CADENA (AAVE V3) ---
-# Usamos Ankr Protocol por estabilidad + Middleware PoA
+# Usamos RPCs de Ankr Protocol (Estables y Gratuitos)
 NETWORKS = {
     "Arbitrum": {
         "rpc": "https://rpc.ankr.com/arbitrum",
@@ -305,8 +307,9 @@ with tab_onchain:
                 # 1. Conexión Web3 dinámica
                 w3 = Web3(Web3.HTTPProvider(rpc_url))
                 
-                # --- CORRECCIÓN CRÍTICA: MIDDLEWARE PARA L2s (Base, Matic, Optimism) ---
-                w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+                # --- ACTUALIZADO PARA WEB3 V7 ---
+                # Usamos ExtraDataToPOAMiddleware en lugar de geth_poa_middleware
+                w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
                 
                 if not w3.is_connected():
                     st.error(f"No se pudo conectar al nodo de {selected_network}. La red puede estar congestionada.")
@@ -377,7 +380,7 @@ with tab_onchain:
                     sim_collat_amt = total_collateral_usd / current_market_price
                     sim_liq_price = total_debt_usd / (sim_collat_amt * current_liq_threshold)
                     
-                    # --- CAMBIO APLICADO: Mostrar Colchón en % ---
+                    # Colchón en %
                     cushion_pct = (current_market_price - sim_liq_price) / current_market_price
                     
                     st.metric("Precio Liquidación Actual (Est.)", f"${sim_liq_price:,.2f}", 
