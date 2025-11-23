@@ -12,21 +12,26 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # --- CONFIGURACIÓN MULTI-CADENA HÍBRIDA (PRIVADA + PÚBLICA) ---
-# Esta función construye la lista de RPCs priorizando tus claves privadas
-def get_rpcs_for_network(network_name, secret_key, public_rpcs):
+
+# Función corregida: Solo pide la clave del secreto y la lista pública
+def get_rpcs_for_network(secret_key, public_rpcs):
     rpcs = []
     # 1. Intentar cargar URL privada desde st.secrets
     try:
+        # Verificamos si existe la clave en los secretos
         if secret_key in st.secrets:
-            rpcs.append(st.secrets[secret_key]) # Prioridad máxima
+            # Añadimos el nodo privado AL PRINCIPIO de la lista
+            rpcs.append(st.secrets[secret_key])
     except FileNotFoundError:
         pass # Estamos en local sin secrets.toml o sin configurar
+    except Exception:
+        pass # Cualquier otro error con secrets, ignoramos
     
     # 2. Añadir los públicos como respaldo (Failover)
     rpcs.extend(public_rpcs)
     return rpcs
 
-# Definimos las redes usando la función inteligente
+# Definimos las redes usando la función corregida
 NETWORKS = {
     "Base": {
         "rpcs": get_rpcs_for_network("BASE_RPC_URL", [
@@ -111,7 +116,7 @@ ASSET_MAP = {
     "✍️ Otro (Escribir manual)": "MANUAL"
 }
 
-# --- FUNCIÓN AUXILIAR DE CONEXIÓN ROBUSTA ---
+# --- FUNCIÓN DE CONEXIÓN WEB3 CON FAILOVER ---
 def get_web3_connection(network_name):
     """Intenta conectar rotando por la lista de RPCs disponibles"""
     rpcs = NETWORKS[network_name]["rpcs"]
@@ -371,7 +376,7 @@ with tab_onchain:
                     valid_address = w3.to_checksum_address(user_address)
                     valid_pool = w3.to_checksum_address(pool_address)
                 except:
-                    st.error("Dirección de wallet inválida.")
+                    st.error("Dirección inválida.")
                     st.stop()
 
                 # 2. Llamada al contrato
@@ -486,4 +491,3 @@ with tab_onchain:
             except Exception as e:
                 st.error(f"Error conectando: {e}")
                 st.info("Es posible que los nodos estén bloqueando la IP del servidor.")
-
