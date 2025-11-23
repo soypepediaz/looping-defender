@@ -11,10 +11,10 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # --- CONFIGURACIÓN MULTI-CADENA (AAVE V3) ---
-# Diccionario con RPCs públicos y direcciones del Pool de Aave V3
+# Diccionario con RPCs optimizados (LlamaNodes) y direcciones del Pool de Aave V3
 NETWORKS = {
     "Arbitrum": {
-        "rpc": "https://arb1.arbitrum.io/rpc",
+        "rpc": "https://arbitrum.llamarpc.com", # RPC Más estable
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Ethereum Mainnet": {
@@ -22,19 +22,19 @@ NETWORKS = {
         "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
     },
     "Optimism": {
-        "rpc": "https://mainnet.optimism.io",
+        "rpc": "https://optimism.llamarpc.com", # Cambiado a LlamaRPC
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Polygon (Matic)": {
-        "rpc": "https://polygon-rpc.com",
+        "rpc": "https://polygon.llamarpc.com", # Cambiado a LlamaRPC
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Base": {
-        "rpc": "https://mainnet.base.org",
+        "rpc": "https://base.llamarpc.com", # ESTE ES EL CAMBIO CLAVE
         "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f"
     },
     "Avalanche": {
-        "rpc": "https://api.avax.network/ext/bc/C/rpc",
+        "rpc": "https://avalanche.llamarpc.com", # Cambiado a LlamaRPC
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     }
 }
@@ -427,3 +427,4 @@ with tab_onchain:
             except Exception as e:
                 st.error(f"Error conectando a {selected_network}: {e}")
                 st.info("Inténtalo de nuevo. Los nodos públicos a veces se saturan.")
+
