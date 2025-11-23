@@ -12,14 +12,18 @@ st.set_page_config(page_title="Looping Master - Portfolio Pro", layout="wide")
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # ==============================================================================
-#  CONFIGURACIÓN GLOBAL (REDES, ABIs, HELPERS)
+#  1. CONFIGURACIÓN DE REDES Y CONTRATOS
 # ==============================================================================
 
-# --- CONFIGURACIÓN DE REDES & CONTRATOS ---
+# Diccionario de Redes con RPCs robustos y direcciones de contratos Aave V3
 NETWORKS = {
     "Base": {
         "chain_id": 8453,
-        "rpcs": ["https://mainnet.base.org", "https://base.drpc.org", "https://base-rpc.publicnode.com"],
+        "rpcs": [
+            "https://base.drpc.org",
+            "https://mainnet.base.org", 
+            "https://base-rpc.publicnode.com"
+        ],
         "pool_address_provider": "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D",
         "ui_pool_data_provider": "0x2d8A3C5677189723C4cB8873CfC9E899d6317760"
     },
@@ -55,7 +59,7 @@ NETWORKS = {
     }
 }
 
-# ABI UI DATA PROVIDER
+# ABI para UiPoolDataProvider (Lectura masiva de datos)
 UI_ABI = [
     {
         "inputs": [
@@ -124,16 +128,22 @@ ASSET_MAP = {
     "Link (LINK)": "LINK-USD", "✍️ Otro (Escribir manual)": "MANUAL"
 }
 
-# --- HELPERS DE CONEXIÓN ---
+# ==============================================================================
+#  2. FUNCIONES AUXILIARES (CONEXIÓN Y LÓGICA)
+# ==============================================================================
+
 def get_web3_session(rpc_url):
+    """Crea una sesión con User-Agent de navegador para evitar bloqueos."""
     s = requests.Session()
-    s.headers.update({'User-Agent': 'Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36'})
+    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
     return Web3(Web3.HTTPProvider(rpc_url, session=s))
 
 def connect_robust(network_name):
+    """Intenta conectar rotando RPCs y usando Secretos si existen."""
     config = NETWORKS[network_name]
     rpcs = config["rpcs"]
-    # Inyectar secreto si existe (Prioridad 1)
+    
+    # Inyectar secreto (Alchemy/Infura) si existe en la configuración
     secret_key = f"{network_name.upper()}_RPC_URL"
     if secret_key in st.secrets:
         rpcs.insert(0, st.secrets[secret_key])
@@ -147,16 +157,17 @@ def connect_robust(network_name):
         except: continue
     return None, None
 
-# --- LÓGICA DE ANÁLISIS DE PORTAFOLIO (TAB 3) ---
 def process_user_data(w3, network, user_address):
+    """Lógica principal para extraer y procesar el portafolio de Aave."""
     config = NETWORKS[network]
     ui_provider_addr = w3.to_checksum_address(config["ui_pool_data_provider"])
     pool_provider_addr = w3.to_checksum_address(config["pool_address_provider"])
     
     ui_contract = w3.eth.contract(address=ui_provider_addr, abi=UI_ABI)
     
-    # 1. Obtener DATOS GLOBALES
-    reserves_data, currency_info = ui_contract.functions.getReservesData(pool_provider_addr).call()
+    # 1. Obtener DATOS GLOBALES (Precios, LTVs) - Con GAS MANUAL aumentado
+    reserves_data, currency_info = ui_contract.functions.getReservesData(pool_provider_addr).call({'gas': 30000000})
+    
     base_currency_unit = currency_info[0]
     base_currency_price_usd = currency_info[1] / (10 ** 8) 
     
@@ -170,8 +181,8 @@ def process_user_data(w3, network, user_address):
             "price_usd": price
         }
 
-    # 2. Obtener DATOS DEL USUARIO
-    user_reserves, _ = ui_contract.functions.getUserReservesData(pool_provider_addr, user_address).call()
+    # 2. Obtener DATOS DEL USUARIO - Con GAS MANUAL aumentado
+    user_reserves, _ = ui_contract.functions.getUserReservesData(pool_provider_addr, user_address).call({'gas': 30000000})
     
     portfolio = []
     total_collateral_usd = 0
@@ -184,11 +195,14 @@ def process_user_data(w3, network, user_address):
         market = reserves_map[asset]
         decimals = market["decimals"]
         
+        # Calcular montos (simplificado)
         col_amt = u[1] / (10 ** decimals)
         debt_amt = u[3] / (10 ** decimals)
+        
         col_val = col_amt * market["price_usd"]
         debt_val = debt_amt * market["price_usd"]
         
+        # Filtro de saldos vacíos o polvo (< $1)
         if col_val > 1 or debt_val > 1:
             portfolio.append({
                 "Activo": market["symbol"],
@@ -200,7 +214,7 @@ def process_user_data(w3, network, user_address):
                 "Precio ($)": market["price_usd"]
             })
             
-            if u[2] and col_val > 0: # Si es colateral
+            if u[2] and col_val > 0: # Si está habilitado como colateral
                 total_collateral_usd += col_val
                 weighted_lt_numerator += col_val * market["lt"]
             total_debt_usd += debt_val
@@ -211,13 +225,13 @@ def process_user_data(w3, network, user_address):
     return portfolio, total_collateral_usd, total_debt_usd, avg_lt, hf
 
 # ==============================================================================
-#  INTERFAZ DE USUARIO (TABS)
+#  3. INTERFAZ DE USUARIO (TABS)
 # ==============================================================================
 
 tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner Portafolio Real"])
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 1: CALCULADORA ESTÁTICA (RESTAURADA)
+#  PESTAÑA 1: CALCULADORA ESTÁTICA
 # ------------------------------------------------------------------------------
 with tab_calc:
     st.markdown("### Simulador Estático de Defensa")
@@ -307,9 +321,20 @@ with tab_calc:
         "Total Invertido ($)": "${:,.0f}", "Nuevo P. Liq": "${:,.2f}", "Beneficio ($)": "${:,.0f}",
         "ROI (%)": "{:.2f}%", "Ratio": "{:.2f}"
     }), use_container_width=True)
+    
+    # Informe Ejecutivo
+    if not df_calc.empty:
+        st.divider()
+        last_row = df_calc.iloc[-1]
+        st.markdown(f"""
+        ### 📝 Informe Ejecutivo
+        **Configuración Inicial:** Capital: **\${c_capital:,.0f}** | Apalancamiento: **{c_leverage}x** | Precio Liq. Inicial: **\${c_liq_price:,.2f}**.
+        
+        **Escenario Extremo:** Si el mercado cae un **{last_row['Caída (%)']:.1%}**, necesitarás haber inyectado un total de **\${last_row['Total Invertido ($)']-c_capital:,.0f}** para sobrevivir. Si tras eso el precio recupera al objetivo, tu ROI sería del **{last_row['ROI (%)']:.2f}%**.
+        """)
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 2: BACKTEST HISTÓRICO (RESTAURADA)
+#  PESTAÑA 2: MOTOR DE BACKTESTING
 # ------------------------------------------------------------------------------
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica")
@@ -348,7 +373,7 @@ with tab_backtest:
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
                 
-                ltv_liq = c_ltv # Usamos el LTV de la pestaña 1 por defecto
+                ltv_liq = c_ltv 
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
                 target_ratio = liq_price / start_price 
                 
@@ -420,7 +445,7 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 3: ESCÁNER DE PORTAFOLIO (NUEVA VERSIÓN PRO)
+#  PESTAÑA 3: ESCÁNER DE PORTAFOLIO (VERSIÓN PRO CON GAS FIX)
 # ------------------------------------------------------------------------------
 with tab_onchain:
     st.markdown("### 📡 Escáner de Portafolio Aave V3 (Multi-Colateral)")
@@ -436,94 +461,54 @@ with tab_onchain:
         if not user_address_input:
             st.warning("Introduce una dirección")
         else:
-            with st.spinner(f"Conectando a {selected_network} y descargando datos de mercado..."):
+            with st.spinner(f"Conectando a {selected_network} y descargando datos masivos..."):
+                # Usamos la conexión robusta
                 w3, rpc = connect_robust(selected_network)
                 if not w3:
-                    st.error("Error de conexión RPC.")
+                    st.error("⚠️ Todos los nodos públicos gratuitos están saturados.")
+                    st.info("Para usar esta función avanzada en Base/Arbitrum, necesitas una clave gratuita de Alchemy en los Secrets de Streamlit.")
                     st.stop()
                 
                 try:
                     valid_addr = w3.to_checksum_address(user_address_input)
                     portfolio, tot_col, tot_debt, avg_lt, hf = process_user_data(w3, selected_network, valid_addr)
                     
-                    # KPIS
-                    st.success(f"✅ Datos cargados vía {rpc[:30]}...")
+                    st.success(f"✅ Datos cargados vía {rpc[:25]}...")
                     m1, m2, m3, m4 = st.columns(4)
                     m1.metric("Health Factor", f"{hf:.2f}", delta="Riesgo" if hf < 1.1 else "Seguro", delta_color="normal" if hf > 1.1 else "inverse")
                     m2.metric("Colateral Total", f"${tot_col:,.2f}")
                     m3.metric("Deuda Total", f"${tot_debt:,.2f}")
-                    m4.metric("Umbral Liq. (Avg)", f"{avg_lt:.2%}", help="Promedio ponderado del Liquidation Threshold de tus activos")
+                    m4.metric("Umbral Liq. (Avg)", f"{avg_lt:.2%}", help="Promedio ponderado del Liquidation Threshold")
                     
                     st.divider()
                     
-                    # TABLA ACTIVOS
                     st.subheader("💼 Composición del Portafolio")
                     if portfolio:
-                        df_p = pd.DataFrame(portfolio)
-                        st.dataframe(
-                            df_p.style.format({
-                                "Cant. Colateral": "{:.4f}", "Valor Colateral ($)": "${:,.2f}",
-                                "Cant. Deuda": "{:.4f}", "Valor Deuda ($)": "${:,.2f}",
-                                "LT (%)": "{:.1%}", "Precio ($)": "${:,.2f}"
-                            }), 
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning("No se encontraron activos en Aave V3.")
+                        st.dataframe(pd.DataFrame(portfolio).style.format({"Colateral": "{:.4f}", "Valor Colateral ($)": "${:,.2f}", "Deuda": "{:.4f}", "Valor Deuda ($)": "${:,.2f}", "LT (%)": "{:.1%}", "Precio ($)": "${:,.2f}"}), use_container_width=True)
+                    else: st.warning("No se encontraron activos.")
                     
-                    # SIMULACIÓN
                     if tot_debt > 0:
                         st.divider()
                         st.subheader("📉 Simulación: Caída General del Mercado")
-                        st.info("Este escenario asume que **TODOS** tus activos de colateral caen simultáneamente el mismo porcentaje.")
-                        
-                        # Margen hasta liquidación
-                        if (tot_col * avg_lt) > 0:
-                            liquidation_drop = 1 - (tot_debt / (tot_col * avg_lt))
-                        else:
-                            liquidation_drop = 0
-                            
+                        if (tot_col * avg_lt) > 0: liquidation_drop = 1 - (tot_debt / (tot_col * avg_lt))
+                        else: liquidation_drop = 0
                         st.metric("Margen de Caída hasta Liquidación", f"{liquidation_drop:.2%}", delta="Distancia de Seguridad", delta_color="normal")
                         
-                        # TABLA DE DEFENSA
                         st.markdown("#### 🛡️ Plan de Defensa (Inyección de Capital)")
-                        
                         target_hf = st.number_input("Health Factor Objetivo tras defensa", value=1.05, step=0.05, min_value=1.01)
-                        
                         sim_data = []
                         start_drop = int(liquidation_drop * 100)
-                        scenarios = range(start_drop + 5, start_drop + 55, 5) 
-                        
-                        for drop_pct in scenarios:
+                        for drop_pct in range(start_drop + 5, start_drop + 55, 5):
                             drop = drop_pct / 100.0
-                            
-                            # Estado tras el crash (sin defensa)
                             shocked_col = tot_col * (1 - drop)
                             shocked_hf = (shocked_col * avg_lt) / tot_debt
-                            
-                            # Cálculo de capital necesario
                             needed_capital = tot_debt - ((shocked_col * avg_lt) / target_hf)
                             if needed_capital < 0: needed_capital = 0
-                            
-                            # Nuevo HF tras inyectar
-                            new_debt_after_pay = tot_debt - needed_capital
-                            if new_debt_after_pay > 0:
-                                final_hf = (shocked_col * avg_lt) / new_debt_after_pay
-                            else:
-                                final_hf = 999.0
-                            
-                            sim_data.append({
-                                "Caída Mercado": f"-{drop_pct}%",
-                                "HF (Sin Defensa)": f"{shocked_hf:.2f}",
-                                "Capital a Inyectar ($)": needed_capital,
-                                "Nuevo HF (Tras Defensa)": f"{final_hf:.2f}"
-                            })
-                            
-                        st.dataframe(
-                            pd.DataFrame(sim_data).style.format({"Capital a Inyectar ($)": "${:,.2f}"})
-                            .background_gradient(subset=["Capital a Inyectar ($)"], cmap="Reds"),
-                            use_container_width=True
-                        )
+                            new_debt = tot_debt - needed_capital
+                            final_hf = (shocked_col * avg_lt) / new_debt if new_debt > 0 else 999.0
+                            sim_data.append({"Caída Mercado": f"-{drop_pct}%", "HF (Sin Defensa)": f"{shocked_hf:.2f}", "Capital a Inyectar ($)": needed_capital, "Nuevo HF": f"{final_hf:.2f}"})
+                        st.dataframe(pd.DataFrame(sim_data).style.format({"Capital a Inyectar ($)": "${:,.2f}"}).background_gradient(subset=["Capital a Inyectar ($)"], cmap="Reds"), use_container_width=True)
 
                 except Exception as e:
                     st.error(f"Error procesando datos: {e}")
+                    st.warning("Si ves un error de 'transact', es posible que el nodo público haya rechazado la consulta por ser muy pesada. Intenta usar una clave de Alchemy.")
