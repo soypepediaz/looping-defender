@@ -11,56 +11,70 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
-# --- CONFIGURACIÓN MULTI-CADENA ROBUSTA (LISTAS DE RPCs) ---
-# Estrategia: Si uno falla, el sistema prueba automáticamente el siguiente.
+# --- CONFIGURACIÓN MULTI-CADENA HÍBRIDA (PRIVADA + PÚBLICA) ---
+# Esta función construye la lista de RPCs priorizando tus claves privadas
+def get_rpcs_for_network(network_name, secret_key, public_rpcs):
+    rpcs = []
+    # 1. Intentar cargar URL privada desde st.secrets
+    try:
+        if secret_key in st.secrets:
+            rpcs.append(st.secrets[secret_key]) # Prioridad máxima
+    except FileNotFoundError:
+        pass # Estamos en local sin secrets.toml o sin configurar
+    
+    # 2. Añadir los públicos como respaldo (Failover)
+    rpcs.extend(public_rpcs)
+    return rpcs
+
+# Definimos las redes usando la función inteligente
 NETWORKS = {
     "Base": {
-        "rpcs": [
+        "rpcs": get_rpcs_for_network("BASE_RPC_URL", [
             "https://mainnet.base.org",
             "https://base.llamarpc.com",
             "https://base-rpc.publicnode.com",
             "https://1rpc.io/base"
-        ],
+        ]),
         "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f"
     },
     "Arbitrum": {
-        "rpcs": [
+        "rpcs": get_rpcs_for_network("ARBITRUM_RPC_URL", [
             "https://arb1.arbitrum.io/rpc",
             "https://arbitrum.llamarpc.com",
             "https://rpc.ankr.com/arbitrum"
-        ],
+        ]),
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Ethereum Mainnet": {
-        "rpcs": [
+        "rpcs": get_rpcs_for_network("ETH_RPC_URL", [
             "https://eth.llamarpc.com",
             "https://rpc.ankr.com/eth",
             "https://ethereum-rpc.publicnode.com"
-        ], 
+        ]), 
         "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
     },
     "Optimism": {
-        "rpcs": [
+        "rpcs": get_rpcs_for_network("OP_RPC_URL", [
             "https://mainnet.optimism.io",
             "https://optimism.llamarpc.com",
             "https://rpc.ankr.com/optimism"
-        ],
+        ]),
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Polygon (Matic)": {
-        "rpcs": [
+        "rpcs": get_rpcs_for_network("MATIC_RPC_URL", [
             "https://polygon-rpc.com",
             "https://polygon.llamarpc.com",
             "https://rpc.ankr.com/polygon"
-        ],
+        ]),
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Avalanche": {
-        "rpcs": [
+        "rpcs": get_rpcs_for_network("AVAX_RPC_URL", [
             "https://api.avax.network/ext/bc/C/rpc",
             "https://avalanche.llamarpc.com",
             "https://rpc.ankr.com/avalanche"
-        ],
+        ]),
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     }
 }
@@ -472,3 +486,4 @@ with tab_onchain:
             except Exception as e:
                 st.error(f"Error conectando: {e}")
                 st.info("Es posible que los nodos estén bloqueando la IP del servidor.")
+
