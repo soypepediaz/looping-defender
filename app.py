@@ -14,99 +14,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# ... (Imports y set_page_config arriba) ...
-
 # ==============================================================================
-#  ESTRUCTURA DE NAVEGACIÓN (NUEVA)
-# ==============================================================================
-
-# Creamos 4 pestañas en lugar de 3
-tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
-    "🏠 Inicio & Campamento", 
-    "🧮 Calculadora", 
-    "📉 Backtest", 
-    "📡 Escáner Real"
-])
-
-# ==============================================================================
-#  PESTAÑA 0: PORTADA / LANDING PAGE (MARKETING)
-# ==============================================================================
-with tab_home:
-    # 1. HERO SECTION
-    col_hero_L, col_hero_R = st.columns([2, 1])
-    
-    with col_hero_L:
-        st.title("🛡️ Domina el Looping en DeFi")
-        st.markdown("""
-        ### Maximiza tus rendimientos sin morir en el intento.
-        
-        Bienvenido a **Looping Master**, la herramienta definitiva para analizar, proyectar y 
-        defender tus posiciones apalancadas en Aave y otros protocolos.
-        
-        **¿Qué puedes hacer aquí?**
-        * 🧮 **Calcular:** Proyecta rentabilidades y puntos de liquidación.
-        * 📉 **Validar:** Haz Backtesting con datos históricos reales.
-        * 📡 **Escanear:** Audita tu cartera real en Blockchain y simula "Crash Tests".
-        """)
-        
-        st.info("💡 **Tip:** Usa las pestañas de arriba para navegar por las herramientas.")
-
-    with col_hero_R:
-        # Aquí podrías poner una imagen o logo del Campamento DeFi
-        st.markdown("### ⛺ Campamento DeFi")
-        st.markdown("Tu comunidad de Estrategias On-Chain.")
-        st.metric("Nivel de Riesgo", "Gestionado", delta="Alto Rendimiento")
-
-    st.divider()
-
-    # 2. SECCIÓN DE CAPTACIÓN (LEAD MAGNET)
-    st.markdown("### 🚀 ¿Quieres recibir más estrategias como esta?")
-    
-    c_form_1, c_form_2 = st.columns([3, 2])
-    
-    with c_form_1:
-        st.markdown("""
-        Esta herramienta es solo la punta del iceberg. En el **Campamento DeFi** compartimos:
-        - Estrategias de Yield Farming avanzadas.
-        - Alertas de seguridad y gestión de riesgo.
-        - Herramientas exclusivas para miembros.
-        
-        **Únete gratis a nuestra Newsletter y recibe el "Manual de Supervivencia DeFi".**
-        """)
-        
-    with c_form_2:
-        with st.form("email_form"):
-            st.write("**Suscríbete al Campamento:**")
-            name_input = st.text_input("Nombre", placeholder="Satoshi Nakamoto")
-            email_input = st.text_input("Tu mejor Email", placeholder="satoshi@bitcoin.org")
-            
-            # Botón de envío
-            submitted = st.form_submit_button("📩 Unirme y Recibir Manual", type="primary")
-            
-            if submitted:
-                if email_input:
-                    # AQUÍ CONECTAREMOS CON MOOSEND LUEGO
-                    st.success(f"¡Bienvenido al Campamento, {name_input}! Revisa tu bandeja de entrada.")
-                    st.balloons()
-                else:
-                    st.error("Por favor, introduce un email válido.")
-
-    st.divider()
-    
-    # 3. FOOTER / DISCLAIMER
-    st.caption("""
-    **Disclaimer:** Esta herramienta es solo para fines educativos y de simulación. 
-    DeFi conlleva riesgos elevados. Haz siempre tu propia investigación (DYOR). 
-    Desarrollado con ❤️ por el equipo de Campamento DeFi.
-    """)
-
-# ... (Aquí iría el resto del código: NETWORKS, Funciones y el contenido de las otras tabs) ...
-
-
-st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
-
-# ==============================================================================
-#  1. CONFIGURACIÓN DE REDES
+#  1. CONFIGURACIÓN DE REDES Y CONTRATOS
 # ==============================================================================
 
 # Diccionario de Redes con RPCs robustos
@@ -271,14 +180,87 @@ def connect_robust(network_name):
     return None, None, False
 
 # ==============================================================================
-#  3. UI: PESTAÑAS
+#  3. UI: ESTRUCTURA DE PESTAÑAS (AHORA SON 4)
 # ==============================================================================
 
-tab_calc, tab_backtest, tab_onchain = st.tabs([
+tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
+    "🏠 Inicio",
     "🧮 Calculadora", 
     "📉 Backtest", 
     "📡 Escáner Real"
 ])
+
+# ------------------------------------------------------------------------------
+#  PESTAÑA 0: PORTADA (NUEVO)
+# ------------------------------------------------------------------------------
+with tab_home:
+    # 1. HERO SECTION
+    col_hero_L, col_hero_R = st.columns([2, 1])
+    
+    with col_hero_L:
+        st.title("🛡️ Domina el Looping en DeFi")
+        st.markdown("""
+        ### Maximiza tus rendimientos sin morir en el intento.
+        
+        Bienvenido a **Looping Master**, la herramienta definitiva para analizar, proyectar y 
+        defender tus posiciones apalancadas en Aave y otros protocolos.
+        
+        **¿Qué puedes hacer aquí?**
+        * 🧮 **Calculadora:** Proyecta rentabilidades y puntos de liquidación.
+        * 📉 **Backtest:** Valida tu estrategia con datos históricos reales.
+        * 📡 **Escáner:** Audita tu cartera real en Blockchain y simula "Crash Tests".
+        """)
+        
+        st.info("💡 **Tip:** Navega por las pestañas superiores para usar las herramientas.")
+
+    with col_hero_R:
+        # Espacio para logo o branding visual
+        st.markdown("### ⛺ Campamento DeFi")
+        st.markdown("Tu comunidad de Estrategias On-Chain.")
+        st.metric("Nivel de Riesgo", "Gestionado", delta="Alto Rendimiento")
+
+    st.divider()
+
+    # 2. SECCIÓN DE CAPTACIÓN (LEAD MAGNET)
+    st.markdown("### 🚀 ¿Quieres recibir más estrategias como esta?")
+    
+    c_form_1, c_form_2 = st.columns([3, 2])
+    
+    with c_form_1:
+        st.markdown("""
+        Esta herramienta es solo la punta del iceberg. En el **Campamento DeFi** compartimos:
+        - Estrategias de Yield Farming avanzadas.
+        - Alertas de seguridad y gestión de riesgo.
+        - Herramientas exclusivas para miembros.
+        
+        **Únete gratis a nuestra Newsletter y recibe el "Manual de Supervivencia DeFi".**
+        """)
+        
+    with c_form_2:
+        with st.form("email_form"):
+            st.write("**Suscríbete al Campamento:**")
+            name_input = st.text_input("Nombre", placeholder="Satoshi Nakamoto")
+            email_input = st.text_input("Tu mejor Email", placeholder="satoshi@bitcoin.org")
+            
+            # Botón de envío
+            submitted = st.form_submit_button("📩 Unirme y Recibir Manual", type="primary")
+            
+            if submitted:
+                if email_input:
+                    # TODO: Aquí conectaremos con la API de Moosend más adelante
+                    st.success(f"¡Bienvenido al Campamento, {name_input}! Revisa tu bandeja de entrada.")
+                    st.balloons()
+                else:
+                    st.error("Por favor, introduce un email válido.")
+
+    st.divider()
+    
+    # 3. FOOTER
+    st.caption("""
+    **Disclaimer:** Esta herramienta es solo para fines educativos y de simulación. 
+    DeFi conlleva riesgos elevados. Haz siempre tu propia investigación (DYOR). 
+    Desarrollado con ❤️ por el equipo de Campamento DeFi.
+    """)
 
 # ------------------------------------------------------------------------------
 #  PESTAÑA 1: CALCULADORA
@@ -449,8 +431,9 @@ with tab_backtest:
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
                 
-                ltv_liq = c_ltv 
+                ltv_liq = c_ltv # Usamos el LTV de la pestaña 1
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
+                target_ratio = liq_price / start_price 
                 
                 history = []
                 total_injected = 0.0
@@ -529,7 +512,7 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 3: ESCÁNER REAL (MODO BLINDADO CON MEMORIA)
+#  PESTAÑA 3: ESCÁNER REAL (MODO SEGURO + MEMORIA)
 # ------------------------------------------------------------------------------
 with tab_onchain:
     st.markdown("### 📡 Escáner Aave V3 (Modo Seguro)")
@@ -542,7 +525,6 @@ with tab_onchain:
         addr = st.text_input("Wallet Address (0x...)", placeholder="0x...")
     
     # --- GESTIÓN DE ESTADO (MEMORIA) ---
-    # Esto evita que los datos se borren al interactuar con los widgets
     if 'portfolio_data' not in st.session_state:
         st.session_state.portfolio_data = None
 
@@ -552,8 +534,7 @@ with tab_onchain:
         else:
             with st.spinner(f"Conectando a {net}..."):
                 w3, rpc_used, is_private = connect_robust(net)
-                if not w3:
-                    st.error("Error conexión RPC. Revisa tus Secrets."); st.stop()
+                if not w3: st.error("Error conexión RPC"); st.stop()
                 
                 try:
                     # 1. Obtener Pool Real
@@ -561,11 +542,11 @@ with tab_onchain:
                     prov_contract = w3.eth.contract(address=prov_addr, abi=AAVE_ABI)
                     pool_addr = prov_contract.functions.getPool().call()
                     
-                    # 2. Llamada Ligera (getUserAccountData)
+                    # 2. Llamada Ligera
                     pool = w3.eth.contract(address=pool_addr, abi=AAVE_ABI)
                     data = pool.functions.getUserAccountData(w3.to_checksum_address(addr)).call()
                     
-                    # 3. Guardar en Memoria Session State
+                    # 3. Guardar en Memoria
                     st.session_state.portfolio_data = {
                         "col_usd": data[0] / 10**8,
                         "debt_usd": data[1] / 10**8,
@@ -607,7 +588,6 @@ with tab_onchain:
                     sim_asset = st.selectbox("¿Cuál es tu colateral principal?", list(ASSET_MAP.keys()), key="oc_asset")
                     ticker = ASSET_MAP[sim_asset] if ASSET_MAP[sim_asset] != "MANUAL" else st.text_input("Ticker", "ETH-USD", key="oc_tick")
                 with c_par:
-                    # Umbral mínimo bajado al 5% como pediste
                     def_th = st.number_input("Umbral Defensa (%)", 5.0, step=1.0, key="oc_th") / 100.0
                     zones = st.slider("Zonas", 1, 10, 5, key="oc_z")
                     
@@ -628,16 +608,11 @@ with tab_onchain:
                     for i in range(1, zones+1):
                         trig = s_curr_l * (1 + def_th)
                         targ = trig * ratio_target
-                        
-                        # Cálculo deuda máxima permitida -> tokens necesarios
                         needed_amt = d['debt_usd'] / (targ * d['lt_avg'])
                         add_amt = max(0, needed_amt - s_curr_c)
-                        
                         cost_usd = add_amt * trig
                         s_cum += cost_usd
                         s_curr_c += add_amt
-                        
-                        # Nuevo HF al inyectar colateral
                         new_col_usd = s_curr_c * trig
                         new_hf = (new_col_usd * d['lt_avg']) / d['debt_usd']
                         
@@ -658,7 +633,7 @@ with tab_onchain:
                     st.error(f"Error precio: {ex}")
 
             # ==================================================================
-            # MODO B: MULTI-COLATERAL (LÓGICA PREVENTIVA)
+            # MODO B: MULTI-COLATERAL (LÓGICA PREVENTIVA - V4)
             # ==================================================================
             else:
                 st.info("Planificación preventiva basada en caída de Salud (Health Factor).")
@@ -667,7 +642,7 @@ with tab_onchain:
                 with col_opts:
                     num_defenses = st.slider("Número de Defensas", 1, 10, 5, key="mc_zones")
                 with col_ref:
-                    witness_asset = st.selectbox("Activo Testigo (Ref. Visual)", list(ASSET_MAP.keys()), key="mc_witness")
+                    witness_asset = st.selectbox("Activo Testigo (Referencia Visual)", list(ASSET_MAP.keys()), key="mc_witness")
                     w_ticker = ASSET_MAP[witness_asset] if ASSET_MAP[witness_asset] != "MANUAL" else "ETH-USD"
                 
                 try:
@@ -691,13 +666,11 @@ with tab_onchain:
                         if trigger_hf <= 1.001: trigger_hf = 1.001
                         
                         # 2. Caída de mercado requerida para llegar ahí
-                        # Drop = 1 - (HF_Trig / HF_Curr)
                         drop_pct = 1 - (trigger_hf / current_hf)
                         
                         # 3. Capital para RESTAURAR al HF Original
                         shocked_col = d['col_usd'] * (1 - drop_pct)
-                        
-                        # weighted_lt_val = d['col_usd'] * d['lt_avg']
+                        # Valor base LT ponderado ajustado
                         shocked_lt_val = (d['col_usd'] * d['lt_avg']) * (1 - drop_pct)
                         
                         # Inyeccion = Deuda - (Shocked_Val / Target_HF)
@@ -709,7 +682,10 @@ with tab_onchain:
                         
                         # Nuevo HF real tras inyección (repagando deuda)
                         final_debt = d['debt_usd'] - needed_capital
-                        final_hf = (shocked_col * d['lt_avg']) / final_debt if final_debt > 0 else 999
+                        if final_debt > 0:
+                            final_hf = (shocked_col * d['lt_avg']) / final_debt
+                        else:
+                            final_hf = 999.0
                         
                         mc_data.append({
                             "Trigger HF": f"{trigger_hf:.2f}",
@@ -728,4 +704,3 @@ with tab_onchain:
                     )
         else:
             st.success("Sin deuda activa.")
-
