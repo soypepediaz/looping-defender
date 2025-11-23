@@ -1,13 +1,13 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 
 # --- Configuración de la Página ---
-st.set_page_config(page_title="Looping Defense - Risk/Reward", layout="wide")
+st.set_page_config(page_title="Looping Defense - Final Report", layout="wide")
 
 st.title("🛡️ Calculadora Looping: Defensa & Rentabilidad")
 st.markdown("""
-Esta herramienta simula la defensa en cascada y proyecta la **rentabilidad potencial** si el mercado rebota desde la zona de defensa hasta tu Precio Objetivo.
+Esta herramienta simula una estrategia de defensa en cascada y genera un informe ejecutivo 
+sobre las necesidades de capital y el potencial de retorno (Risk/Reward).
 """)
 
 # --- Barra Lateral: Parámetros ---
@@ -78,7 +78,7 @@ for i in range(1, num_zones + 1):
     
     total_invested_so_far = initial_capital + cumulative_cost_usd
     
-    # --- NUEVO: CÁLCULOS DE RENTABILIDAD (SI REBOTA AL TARGET) ---
+    # --- CÁLCULOS DE RENTABILIDAD ---
     # Valor de mi posición (colateral total) si el precio sube a Target Price
     final_position_value = current_collateral_amt * target_price
     
@@ -92,7 +92,6 @@ for i in range(1, num_zones + 1):
     roi_pct = (net_profit / total_invested_so_far) * 100
     
     # RATIO: Beneficio % / Caída %
-    # Ejemplo: Gano un 80% tras aguantar una caída del 40%. Ratio = 2.0
     if drop_from_start_pct > 0:
         risk_reward_ratio = roi_pct / (drop_from_start_pct * 100)
     else:
@@ -106,7 +105,6 @@ for i in range(1, num_zones + 1):
         "Inversión Extra ($)": cost_injection,
         "Total Invertido ($)": total_invested_so_far,
         "Nuevo P. Liq ($)": target_liq_price,
-        # Nuevas Columnas
         "Beneficio al Objetivo ($)": net_profit,
         "ROI (%)": roi_pct,
         "Ratio (Ganancia/Caída)": risk_reward_ratio
@@ -117,44 +115,64 @@ for i in range(1, num_zones + 1):
 
 df_cascade = pd.DataFrame(cascade_data)
 
-# --- RESULTADOS ---
+# --- TABLA DE RESULTADOS ---
 st.divider()
 st.subheader(f"📍 Análisis de Escenarios: Rebote hasta ${target_price:,.0f}")
 
-# Estilo de la tabla
+# Tabla limpia y expandida
 st.dataframe(df_cascade.style.format({
     "Precio Activación ($)": "${:,.2f}",
     "Caída Max (%)": "{:.2%}",
     "Inversión Extra ($)": "${:,.0f}",
     "Total Invertido ($)": "${:,.0f}",
     "Nuevo P. Liq ($)": "${:,.2f}",
-    "Beneficio al Objetivo ($)": "${:,.0f}", # Sin decimales para limpieza
+    "Beneficio al Objetivo ($)": "${:,.0f}", 
     "ROI (%)": "{:.2f}%",
     "Ratio (Ganancia/Caída)": "{:.2f}"
-}).background_gradient(subset=["Ratio (Ganancia/Caída)"], cmap="RdYlGn"), 
-hide_index=True, use_container_width=True)
+}), hide_index=True, use_container_width=True)
 
-# Resumen Final
-last_row = df_cascade.iloc[-1]
-st.info(f"""
-**Interpretación de la última zona:** Si el precio cae un **{last_row['Caída Max (%)']:.1%}** (hasta ${last_row['Precio Activación ($)']:,.0f}) y tú defiendes la posición:
-tendrás un total de **${last_row['Total Invertido ($)']:,.0f}** invertidos. 
-Si luego el precio recupera hasta **${target_price:,.0f}**, ganarás **${last_row['Beneficio al Objetivo ($)']:,.0f}** ({last_row['ROI (%)']:.2f}% ROI).
-""")
 
-# Gráfico Opcional
+# --- INFORME EJECUTIVO (Plantilla) ---
 st.divider()
-with st.expander("Ver Gráfico de Niveles", expanded=False):
-    fig = go.Figure()
-    # Mercado
-    fig.add_trace(go.Scatter(x=df_cascade["Zona"], y=df_cascade["Precio Activación ($)"],
-                             name='Precio Mercado (Caída)', line=dict(color='orange', dash='dash')))
-    # Liquidación
-    fig.add_trace(go.Scatter(x=df_cascade["Zona"], y=df_cascade["Nuevo P. Liq ($)"],
-                             name='Nuevo Precio Liq', line=dict(color='red')))
-    # Target (Línea recta arriba)
-    fig.add_trace(go.Scatter(x=df_cascade["Zona"], y=[target_price]*len(df_cascade),
-                             name='Precio Objetivo', line=dict(color='green', width=4)))
 
-    fig.update_layout(title="Mapa de Precios: Caída vs Liquidación vs Objetivo", hovermode="x unified")
-    st.plotly_chart(fig, use_container_width=True)
+if not df_cascade.empty:
+    last_row = df_cascade.iloc[-1]
+    
+    # Variables para el texto
+    total_drop_txt = f"{last_row['Caída Max (%)']:.1%}"
+    trigger_final_txt = f"${last_row['Precio Activación ($)']:,.0f}"
+    zones_txt = num_zones
+    total_invested_txt = f"${last_row['Total Invertido ($)']:,.0f}"
+    new_liq_final_txt = f"${last_row['Nuevo P. Liq ($)']:,.0f}"
+    net_profit_txt = f"${last_row['Beneficio al Objetivo ($)']:,.0f}"
+    roi_final_txt = f"{last_row['ROI (%)']:.2f}%"
+    ratio_txt = f"{last_row['Ratio (Ganancia/Caída)']:.2f}"
+    
+    # Plantilla Markdown
+    report_markdown = f"""
+    ### 📝 Informe Ejecutivo de Estrategia: Looping con Defensa Activa
+    
+    **1. Configuración de Partida** Has iniciado una operación de Looping en **{asset_name}** con un capital de **\${initial_capital:,.0f}** y un apalancamiento de **{leverage}x**.  
+    Tu posición comenzó con un precio de liquidación de **\${liq_price_start:,.2f}**, lo que te daba un colchón de seguridad inicial del **{initial_cushion_pct:.1%}**.
+    
+    **2. Lógica de Defensa (Tu Seguro)** Para evitar la liquidación, hemos establecido una estrategia de "Muro de Contención".
+    * **¿Cuándo actuamos?** Actuamos preventivamente cuando el precio se acerca (sube) un **{defense_threshold_pct:.1%}** sobre tu nivel de liquidación.
+    * **¿Qué hacemos?** Inyectamos más **{asset_name}** (colateral) a la posición.
+    * **¿El objetivo?** Restaurar la tranquilidad. Cada inyección empuja el precio de liquidación hacia abajo lo suficiente para recuperar el mismo margen de seguridad (**{initial_cushion_pct:.1%}**) que tenías al principio.
+    
+    **3. Análisis de Escenario Extremo (Zona #{zones_txt})** En el peor escenario simulado, donde el mercado sufre una caída acumulada del **{total_drop_txt}** (llevando el precio de {asset_name} a **{trigger_final_txt}**):
+    * Habrás tenido que defender la posición **{zones_txt}** veces.
+    * Tu inversión total (Capital Inicial + Defensas) habrá ascendido a **{total_invested_txt}**.
+    * Tu nuevo precio de liquidación estaría blindado en **{new_liq_final_txt}**.
+    
+    **4. Proyección de Rentabilidad (Risk/Reward)** Si logras aguantar esta caída extrema y el mercado eventualmente rebota hasta tu objetivo de **\${target_price:,.0f}**:
+    * El valor de tu posición se disparará debido a la gran cantidad de colateral acumulado a precios bajos.
+    * Tu beneficio neto sería de **{net_profit_txt}**.
+    * Esto supone un retorno del **{roi_final_txt}** sobre todo el dinero invertido.
+    * **Ratio de Eficiencia:** Por cada 1% que el mercado cayó, tú recuperaste un **{ratio_txt}%** de beneficio en la subida.
+    """
+    
+    st.markdown(report_markdown)
+
+else:
+    st.warning("Ajusta los parámetros para generar escenarios de defensa.")
