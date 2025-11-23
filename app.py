@@ -6,16 +6,19 @@ from datetime import date, timedelta
 from web3 import Web3
 import requests
 
-# --- Configuración de la Página ---
+# ==============================================================================
+#  CONFIGURACIÓN DE LA PÁGINA
+# ==============================================================================
 st.set_page_config(page_title="Looping Master - Final", layout="wide")
 
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # ==============================================================================
-#  1. CONFIGURACIÓN DE REDES Y CONTRATOS
+#  1. CONFIGURACIÓN DE REDES (MODO ADDRESS PROVIDER)
 # ==============================================================================
+# Usamos los RPCs más estables y la dirección del 'PoolAddressesProvider' (El Jefe)
+# para obtener siempre la dirección correcta del Pool dinámicamente.
 
-# Usamos 'pool_provider' (AddressProvider) para encontrar siempre la dirección correcta del Pool
 NETWORKS = {
     "Base": {
         "chain_id": 8453,
@@ -49,7 +52,7 @@ NETWORKS = {
     }
 }
 
-# ABI MIXTO (Ligero)
+# ABI LIGERO (Solo lo necesario para conectar y leer totales)
 AAVE_ABI = [
     # Función para preguntar al Provider dónde está el Pool
     {
@@ -59,7 +62,7 @@ AAVE_ABI = [
         "stateMutability": "view",
         "type": "function"
     },
-    # Función ligera getUserAccountData (Funciona siempre)
+    # Función ligera getUserAccountData (Devuelve totales en USD base)
     {
         "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
         "name": "getUserAccountData",
@@ -76,6 +79,7 @@ AAVE_ABI = [
     }
 ]
 
+# Mapeo de activos para los selectores
 ASSET_MAP = {
     "Bitcoin (WBTC/BTC)": "BTC-USD", 
     "Ethereum (WETH/ETH)": "ETH-USD", 
@@ -87,24 +91,27 @@ ASSET_MAP = {
 }
 
 # ==============================================================================
-#  2. FUNCIONES AUXILIARES
+#  2. FUNCIONES AUXILIARES (CONEXIÓN ROBUSTA)
 # ==============================================================================
 
 def get_web3_session(rpc_url):
-    """Sesión Web3 con Headers de navegador y Timeout seguro"""
+    """Crea una sesión Web3 disfrazada de navegador Chrome"""
     s = requests.Session()
-    s.headers.update({'User-Agent': 'Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36'})
+    s.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    })
+    # Timeout de 30s es suficiente para llamadas ligeras
     return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 30}))
 
 def connect_robust(network_name):
-    """Conexión inteligente: Secrets > Lista Pública"""
+    """Intenta conectar rotando RPCs y priorizando Secrets"""
     config = NETWORKS[network_name]
-    rpcs = config["rpcs"][:] # Copia
+    rpcs = config["rpcs"][:] # Copia de la lista
     
     secret_key = f"{network_name.upper()}_RPC_URL"
     used_private = False
     
-    # Inyección de Secreto
+    # Inyectar secreto si existe
     if secret_key in st.secrets:
         private_rpc = st.secrets[secret_key].strip().replace('"', '').replace("'", "")
         rpcs.insert(0, private_rpc)
@@ -116,17 +123,18 @@ def connect_robust(network_name):
             if w3.is_connected():
                 if w3.eth.chain_id == config["chain_id"]:
                     return w3, rpc, used_private
-        except: continue
+        except: 
+            continue
     return None, None, False
 
 # ==============================================================================
-#  3. INTERFAZ DE USUARIO (TABS)
+#  3. INTERFAZ DE USUARIO (PESTAÑAS)
 # ==============================================================================
 
-tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner Real (Modo Seguro)"])
+tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner Real"])
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 1: CALCULADORA (CÓDIGO ORIGINAL COMPLETO)
+#  PESTAÑA 1: CALCULADORA ESTÁTICA
 # ------------------------------------------------------------------------------
 with tab_calc:
     st.markdown("### Simulador Estático de Defensa")
@@ -152,7 +160,7 @@ with tab_calc:
         c_threshold = st.number_input("Umbral Defensa (%)", value=15.0, step=1.0, key="c_th") / 100.0
         c_zones = st.slider("Zonas de Defensa", 1, 10, 5, key="c_zones")
 
-    # Cálculos
+    # Cálculos base
     c_collat_usd = c_capital * c_leverage
     c_debt_usd = c_collat_usd - c_capital
     c_collat_amt = c_collat_usd / c_price
@@ -164,7 +172,7 @@ with tab_calc:
     else:
         c_liq_price = 0; c_target_ratio = 0; c_cushion_pct = 0
     
-    # Bucle Cascada
+    # Generación de tabla en cascada
     cascade_data = []
     curr_collat = c_collat_amt
     curr_liq = c_liq_price
@@ -186,11 +194,14 @@ with tab_calc:
         curr_collat += add_col
         total_inv = c_capital + cum_cost
         
+        # Cálculos de ROI
         final_val = curr_collat * c_target
         net_prof = (final_val - c_debt_usd) - total_inv
-        
         roi = (net_prof / total_inv) * 100 if total_inv > 0 else 0
         ratio = roi / (drop_pct * 100) if drop_pct > 0 else 0
+        
+        # Nuevo HF
+        new_hf = ((curr_collat * trig_p) * c_ltv) / c_debt_usd if c_debt_usd > 0 else 999
         
         cascade_data.append({
             "Zona": f"#{i}", 
@@ -199,6 +210,7 @@ with tab_calc:
             "Inversión Extra ($)": cost, 
             "Total Invertido ($)": total_inv, 
             "Nuevo P. Liq": targ_liq, 
+            "Nuevo HF": new_hf,
             "Beneficio ($)": net_prof, 
             "ROI (%)": roi, 
             "Ratio": ratio
@@ -209,11 +221,18 @@ with tab_calc:
     
     st.divider()
     st.dataframe(df_calc.style.format({
-        "Precio Activación": "${:,.2f}", "Caída (%)": "{:.2%}", "Inversión Extra ($)": "${:,.0f}", 
-        "Total Invertido ($)": "${:,.0f}", "Nuevo P. Liq": "${:,.2f}", "Beneficio ($)": "${:,.0f}", 
-        "ROI (%)": "{:.2f}%", "Ratio": "{:.2f}"
+        "Precio Activación": "${:,.2f}", 
+        "Caída (%)": "{:.2%}", 
+        "Inversión Extra ($)": "${:,.0f}", 
+        "Total Invertido ($)": "${:,.0f}", 
+        "Nuevo P. Liq": "${:,.2f}", 
+        "Nuevo HF": "{:.2f}",
+        "Beneficio ($)": "${:,.0f}", 
+        "ROI (%)": "{:.2f}%", 
+        "Ratio": "{:.2f}"
     }), use_container_width=True)
     
+    # Informe Ejecutivo
     if not df_calc.empty:
         st.divider()
         last_row = df_calc.iloc[-1]
@@ -225,7 +244,7 @@ with tab_calc:
         """)
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 2: BACKTEST (CÓDIGO ORIGINAL COMPLETO)
+#  PESTAÑA 2: MOTOR DE BACKTESTING
 # ------------------------------------------------------------------------------
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica")
@@ -264,7 +283,7 @@ with tab_backtest:
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
                 
-                ltv_liq = c_ltv # Heredado de la pestaña 1 por coherencia
+                ltv_liq = c_ltv # Usamos el LTV de la pestaña 1
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
                 target_ratio = liq_price / start_price 
                 
@@ -335,11 +354,11 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 3: ESCÁNER REAL (MODO ROBUSTO / LIGERO)
+#  PESTAÑA 3: ESCÁNER REAL (MODO DUAL)
 # ------------------------------------------------------------------------------
 with tab_onchain:
     st.markdown("### 📡 Escáner Aave V3 (Modo Seguro)")
-    st.caption("Utiliza una conexión ligera verificada para evitar bloqueos en Base/L2s. Compatible con Multi-Colateral.")
+    st.caption("Conexión ligera verificada. Elige tu modo de análisis abajo.")
     
     col_net1, col_net2 = st.columns([1, 3])
     with col_net1:
@@ -354,91 +373,139 @@ with tab_onchain:
             with st.spinner(f"Conectando a {selected_network}..."):
                 w3, rpc_used, is_private = connect_robust(selected_network)
                 if not w3:
-                    st.error("Error de conexión RPC. Revisa tus Secrets.")
-                    st.stop()
+                    st.error("Error conexión RPC"); st.stop()
                 
                 try:
-                    # 1. Obtener Pool Real (Preguntando al Jefe)
-                    provider_addr = w3.to_checksum_address(NETWORKS[selected_network]["pool_provider"])
-                    provider_contract = w3.eth.contract(address=provider_addr, abi=AAVE_ABI)
-                    pool_addr = provider_contract.functions.getPool().call()
+                    # 1. Obtener Pool Real
+                    prov_addr = w3.to_checksum_address(NETWORKS[selected_network]["pool_provider"])
+                    prov_contract = w3.eth.contract(address=prov_addr, abi=AAVE_ABI)
+                    pool_addr = prov_contract.functions.getPool().call()
                     
-                    # 2. Llamada Ligera (getUserAccountData) - ESTA NO FALLA
-                    pool_contract = w3.eth.contract(address=pool_addr, abi=AAVE_ABI)
-                    valid_addr = w3.to_checksum_address(user_address)
-                    data = pool_contract.functions.getUserAccountData(valid_addr).call()
+                    # 2. Llamada Ligera (getUserAccountData)
+                    pool = w3.eth.contract(address=pool_addr, abi=AAVE_ABI)
+                    data = pool.functions.getUserAccountData(w3.to_checksum_address(user_address)).call()
                     
-                    # 3. Procesar Datos
+                    # 3. Datos Raw
                     col_usd = data[0] / 10**8
                     debt_usd = data[1] / 10**8
-                    lt_avg = data[3] / 10000 # Umbral de liquidación promedio ponderado
+                    lt_avg = data[3] / 10000
                     hf = data[5] / 10**18
                     
-                    # Estado de conexión
-                    status_msg = f"🔒 Privado (Alchemy)" if is_private else f"🌍 Público ({rpc_used[:20]}...)"
+                    status_msg = f"🔒 Privado" if is_private else f"🌍 Público ({rpc_used[:20]}...)"
                     st.success(f"✅ Datos recibidos. Conexión: {status_msg}")
                     
-                    # Métricas
                     m1, m2, m3, m4 = st.columns(4)
                     m1.metric("Salud (HF)", f"{hf:.2f}", delta_color="normal" if hf>1.1 else "inverse")
                     m2.metric("Colateral Total", f"${col_usd:,.2f}")
                     m3.metric("Deuda Total", f"${debt_usd:,.2f}")
-                    m4.metric("Liq. Threshold (Avg)", f"{lt_avg:.2%}", help="Media ponderada de tus activos")
+                    m4.metric("Liq. Threshold (Avg)", f"{lt_avg:.2%}")
                     
-                    # Lógica de Defensa Multi-Colateral
                     if debt_usd > 0:
                         st.divider()
-                        st.subheader("📉 Simulación de Estrés (Portafolio Global)")
-                        st.info("Calculamos cuánto capital necesitas si **todo tu portafolio** pierde valor simultáneamente.")
+                        st.subheader("🛠️ Estrategia de Defensa")
                         
-                        # Cálculo de caída máxima
-                        # Col * (1-drop) * LT = Deuda  ->  1-drop = Deuda/(Col*LT)
-                        if (col_usd * lt_avg) > 0:
-                            max_drop = 1 - (debt_usd / (col_usd * lt_avg))
+                        # --- SELECTOR DE MODO DE ESTRATEGIA ---
+                        mode = st.radio("Tipo de Posición:", 
+                                        ["🛡️ Activo Único (Detallado con Precios)", 
+                                         "💼 Multi-Colateral (Porcentajes Globales)"], 
+                                        horizontal=True)
+                        
+                        # MODO A: ACTIVO ÚNICO (Como Pestaña 1)
+                        if "Activo Único" in mode:
+                            c_sel, c_par = st.columns(2)
+                            with c_sel:
+                                sim_asset = st.selectbox("¿Cuál es tu colateral principal?", list(ASSET_MAP.keys()))
+                                ticker = ASSET_MAP[sim_asset] if ASSET_MAP[sim_asset] != "MANUAL" else st.text_input("Ticker", "ETH-USD")
+                            with c_par:
+                                def_th = st.number_input("Umbral Defensa (%)", 15.0, step=1.0) / 100.0
+                                zones = st.slider("Zonas", 1, 10, 5)
+                                
+                            # Obtener precio real
+                            try:
+                                curr_p = yf.Ticker(ticker).history(period="1d")['Close'].iloc[-1]
+                                st.metric(f"Precio Mercado ({ticker})", f"${curr_p:,.2f}")
+                                
+                                # Ingeniería inversa: Asumimos que todo el colateral es de este activo
+                                implied_amt = col_usd / curr_p
+                                liq_price_real = debt_usd / (implied_amt * lt_avg)
+                                cushion = (curr_p - liq_price_real) / curr_p
+                                st.metric("Precio Liquidación Actual", f"${liq_price_real:,.2f}", f"{cushion:.2%} Colchón")
+                                
+                                # Generar tabla detallada
+                                ratio_target = liq_price_real / curr_p
+                                s_data = []
+                                s_curr_c, s_curr_l, s_cum = implied_amt, liq_price_real, 0.0
+                                
+                                for i in range(1, zones+1):
+                                    trig = s_curr_l * (1 + def_th)
+                                    targ = trig * ratio_target
+                                    need_usd = debt_usd / (targ * lt_avg)
+                                    # need_usd es la DEUDA MAXIMA permitida. Pero queremos colateral.
+                                    # Formula: Colateral_Nuevo * LT * Precio = Deuda
+                                    # Colateral_Nuevo = Deuda / (LT * Precio)
+                                    # Pero aquí inyectamos colateral.
+                                    
+                                    # FORMA SIMPLE DE PESTAÑA 1:
+                                    # Need_Debt = (Amt + Add) * P * LT
+                                    # Add = (Debt / (P * LT)) - Amt
+                                    add_tokens = (debt_usd / (trig * lt_avg)) - s_curr_c
+                                    if add_tokens < 0: add_tokens = 0
+                                    
+                                    cost_usd = add_tokens * trig
+                                    s_cum += cost_usd
+                                    s_curr_c += add_tokens
+                                    
+                                    # Nuevo HF
+                                    # HF = (Col * LT) / Debt
+                                    new_col_usd = s_curr_c * trig # Valor al precio del trigger
+                                    new_hf = (new_col_usd * lt_avg) / debt_usd
+                                    
+                                    s_data.append({
+                                        "Zona": f"#{i}", "Precio Activación": trig, 
+                                        "Inyectar (Tokens)": add_tokens, "Costo ($)": cost_usd, 
+                                        "Acumulado ($)": s_cum, "Nuevo Liq": targ, "Nuevo HF": new_hf
+                                    })
+                                    s_curr_l = targ
+                                    
+                                st.dataframe(pd.DataFrame(s_data).style.format({
+                                    "Precio Activación": "${:,.2f}", "Costo ($)": "${:,.0f}", 
+                                    "Acumulado ($)": "${:,.0f}", "Nuevo Liq": "${:,.2f}", 
+                                    "Nuevo HF": "{:.2f}", "Inyectar (Tokens)": "{:.4f}"
+                                }), use_container_width=True)
+                                
+                            except Exception as ex:
+                                st.error(f"Error precio: {ex}")
+
+                        # MODO B: MULTI-COLATERAL (Porcentajes)
                         else:
-                            max_drop = 0
+                            st.info("Cálculo basado en caída porcentual global.")
+                            max_drop = 1 - (debt_usd / (col_usd * lt_avg)) if (col_usd*lt_avg)>0 else 0
+                            st.metric("Margen Caída Mercado", f"{max_drop:.2%}", delta="Distancia Liq")
                             
-                        st.metric("Margen Caída Mercado", f"{max_drop:.2%}", delta="Distancia a Liquidación")
-                        
-                        # Tabla de Defensa
-                        st.markdown("#### 🛡️ Tabla de Defensa (Inyección en USD)")
-                        target_hf = st.number_input("HF Objetivo tras defensa", 1.05, 2.0, 1.05)
-                        
-                        sim_data = []
-                        start_drop = int(max_drop * 100)
-                        # Escenarios desde la liquidación + 5% hasta + 55%
-                        for d in range(start_drop + 5, start_drop + 55, 5):
-                            drop = d / 100.0
+                            target_hf = st.number_input("HF Objetivo", 1.05, 2.0, 1.05)
+                            sim = []
+                            start = int(max_drop * 100)
                             
-                            # Escenario de Crash
-                            shock_col = col_usd * (1 - drop)
-                            shock_hf = (shock_col * lt_avg) / debt_usd
+                            for d in range(start+2, start+52, 5):
+                                drop = d/100.0
+                                shock_col = col_usd * (1-drop)
+                                shock_hf = (shock_col * lt_avg) / debt_usd
+                                
+                                # Capital necesario (repagar deuda)
+                                need = debt_usd - ((shock_col * lt_avg) / target_hf)
+                                if need < 0: need = 0
+                                
+                                final_hf = (shock_col * lt_avg) / (debt_usd - need) if (debt_usd-need)>0 else 999
+                                
+                                sim.append({
+                                    "Caída Mercado": f"-{d}%", "HF Riesgo": f"{shock_hf:.2f}", 
+                                    "Inyectar (USDC)": need, "Nuevo HF": f"{final_hf:.2f}"
+                                })
+                                
+                            st.dataframe(pd.DataFrame(sim).style.format({"Inyectar (USDC)": "${:,.2f}"}).background_gradient(subset=["Inyectar (USDC)"], cmap="Reds"), use_container_width=True)
                             
-                            # Capital necesario
-                            # (ShockCol * LT) / (Deuda - Cap) = TargetHF
-                            needed = debt_usd - ((shock_col * lt_avg) / target_hf)
-                            if needed < 0: needed = 0
-                            
-                            # Nuevo HF real
-                            new_debt = debt_usd - needed
-                            final_hf = (shock_col * lt_avg) / new_debt if new_debt > 0 else 999.0
-                            
-                            sim_data.append({
-                                "Caída Mercado": f"-{d}%",
-                                "HF (Riesgo)": f"{shock_hf:.2f}",
-                                "Inyectar (USDC)": needed,
-                                "Nuevo HF": f"{final_hf:.2f}"
-                            })
-                            
-                        st.dataframe(
-                            pd.DataFrame(sim_data).style.format({"Inyectar (USDC)": "${:,.2f}"})
-                            .background_gradient(subset=["Inyectar (USDC)"], cmap="Reds"),
-                            use_container_width=True
-                        )
                     else:
-                        st.success("Posición sin deuda. Estás 100% seguro.")
+                        st.success("Sin deuda activa.")
                         
                 except Exception as e:
-                    st.error(f"Error técnico: {e}")
-                    if "transact" in str(e):
-                        st.warning("El nodo rechazó la llamada. Intenta recargar.")
+                    st.error(f"Error: {e}")
