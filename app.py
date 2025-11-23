@@ -7,7 +7,7 @@ from web3 import Web3
 import requests
 
 # --- Configuración de la Página ---
-st.set_page_config(page_title="Looping Master - Portfolio Pro", layout="wide")
+st.set_page_config(page_title="Looping Master - Final", layout="wide")
 
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
@@ -15,120 +15,61 @@ st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 #  1. CONFIGURACIÓN DE REDES Y CONTRATOS
 # ==============================================================================
 
-# Diccionario de Redes con RPCs robustos y direcciones de contratos Aave V3
-# NOTA: La dirección de 'ui_pool_data_provider' en Base es la corregida (0x9d90...)
+# Usamos 'pool_provider' (AddressProvider) para encontrar siempre la dirección correcta del Pool
 NETWORKS = {
     "Base": {
         "chain_id": 8453,
-        "rpcs": [
-            "https://base.drpc.org",
-            "https://mainnet.base.org", 
-            "https://base-rpc.publicnode.com"
-        ],
-        "pool_address_provider": "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D",
-        "ui_pool_data_provider": "0x9d90d8A936Cb10E7489D409072E743d377178801" 
+        "rpcs": ["https://base.drpc.org", "https://mainnet.base.org"],
+        "pool_provider": "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"
     },
     "Arbitrum": {
         "chain_id": 42161,
-        "rpcs": [
-            "https://arb1.arbitrum.io/rpc",
-            "https://rpc.ankr.com/arbitrum"
-        ],
-        "pool_address_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb",
-        "ui_pool_data_provider": "0x145291d4eD5Af6A539112d69D89875634b92e7D2"
+        "rpcs": ["https://arb1.arbitrum.io/rpc", "https://rpc.ankr.com/arbitrum"],
+        "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Ethereum": {
         "chain_id": 1,
-        "rpcs": [
-            "https://eth.llamarpc.com",
-            "https://rpc.ankr.com/eth"
-        ], 
-        "pool_address_provider": "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e",
-        "ui_pool_data_provider": "0x91c0eA31b49B69Ea18607702c5d9aC360bf3dE7d"
+        "rpcs": ["https://eth.llamarpc.com", "https://rpc.ankr.com/eth"], 
+        "pool_provider": "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"
     },
     "Optimism": {
         "chain_id": 10,
-        "rpcs": [
-            "https://mainnet.optimism.io",
-            "https://rpc.ankr.com/optimism"
-        ],
-        "pool_address_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb",
-        "ui_pool_data_provider": "0xbd83DdBE37fc91923d59C8c1E0bDe0CccCa332d5"
+        "rpcs": ["https://mainnet.optimism.io", "https://rpc.ankr.com/optimism"],
+        "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Polygon": {
         "chain_id": 137,
-        "rpcs": [
-            "https://polygon-rpc.com",
-            "https://rpc.ankr.com/polygon"
-        ],
-        "pool_address_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb",
-        "ui_pool_data_provider": "0xC69728f11E9E6127733751c8410432913123acf1"
+        "rpcs": ["https://polygon-rpc.com", "https://rpc.ankr.com/polygon"],
+        "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Avalanche": {
         "chain_id": 43114,
-        "rpcs": [
-            "https://api.avax.network/ext/bc/C/rpc"
-        ],
-        "pool_address_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb",
-        "ui_pool_data_provider": "0xF53837E394524028942E03708334277894963337"
+        "rpcs": ["https://api.avax.network/ext/bc/C/rpc"],
+        "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     }
 }
 
-# ABI para UiPoolDataProvider (Lectura masiva de datos)
-UI_ABI = [
+# ABI MIXTO (Ligero)
+AAVE_ABI = [
+    # Función para preguntar al Provider dónde está el Pool
     {
-        "inputs": [
-            {"internalType": "contract IPoolAddressesProvider", "name": "provider", "type": "address"},
-            {"internalType": "address", "name": "user", "type": "address"}
-        ],
-        "name": "getUserReservesData",
-        "outputs": [
-            {
-                "components": [
-                    {"internalType": "address", "name": "underlyingAsset", "type": "address"},
-                    {"internalType": "uint256", "name": "scaledATokenBalance", "type": "uint256"},
-                    {"internalType": "bool", "name": "usageAsCollateralEnabledOnUser", "type": "bool"},
-                    {"internalType": "uint256", "name": "scaledVariableDebt", "type": "uint256"},
-                ],
-                "internalType": "struct IUiPoolDataProviderV3.UserReserveData[]",
-                "name": "",
-                "type": "tuple[]"
-            },
-            {"internalType": "uint8", "name": "", "type": "uint8"} 
-        ],
+        "inputs": [],
+        "name": "getPool",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
         "stateMutability": "view",
         "type": "function"
     },
+    # Función ligera getUserAccountData (Funciona siempre)
     {
-        "inputs": [{"internalType": "contract IPoolAddressesProvider", "name": "provider", "type": "address"}],
-        "name": "getReservesData",
+        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
+        "name": "getUserAccountData",
         "outputs": [
-            {
-                "components": [
-                    {"internalType": "address", "name": "underlyingAsset", "type": "address"},
-                    {"internalType": "string", "name": "name", "type": "string"},
-                    {"internalType": "string", "name": "symbol", "type": "string"},
-                    {"internalType": "uint256", "name": "decimals", "type": "uint256"},
-                    {"internalType": "uint256", "name": "baseLTVasCollateral", "type": "uint256"},
-                    {"internalType": "uint256", "name": "reserveLiquidationThreshold", "type": "uint256"},
-                    {"internalType": "uint256", "name": "reserveLiquidationBonus", "type": "uint256"},
-                    {"internalType": "uint256", "name": "priceInMarketReferenceCurrency", "type": "uint256"}
-                ],
-                "internalType": "struct IUiPoolDataProviderV3.AggregatedReserveData[]",
-                "name": "",
-                "type": "tuple[]"
-            },
-            {
-                "components": [
-                    {"internalType": "uint256", "name": "marketReferenceCurrencyUnit", "type": "uint256"},
-                    {"internalType": "int256", "name": "marketReferenceCurrencyPriceInUsd", "type": "int256"},
-                    {"internalType": "int256", "name": "networkBaseTokenPriceInUsd", "type": "int256"},
-                    {"internalType": "uint8", "name": "networkBaseTokenPriceDecimals", "type": "uint8"}
-                ],
-                "internalType": "struct IUiPoolDataProviderV3.BaseCurrencyInfo",
-                "name": "",
-                "type": "tuple"
-            }
+            {"internalType": "uint256", "name": "totalCollateralBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "totalDebtBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "availableBorrowsBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "currentLiquidationThreshold", "type": "uint256"},
+            {"internalType": "uint256", "name": "ltv", "type": "uint256"},
+            {"internalType": "uint256", "name": "healthFactor", "type": "uint256"}
         ],
         "stateMutability": "view",
         "type": "function"
@@ -137,135 +78,55 @@ UI_ABI = [
 
 ASSET_MAP = {
     "Bitcoin (WBTC/BTC)": "BTC-USD", 
-    "Ethereum (WETH/ETH)": "ETH-USD",
+    "Ethereum (WETH/ETH)": "ETH-USD", 
     "Arbitrum (ARB)": "ARB-USD", 
-    "Optimism (OP)": "OP-USD",
-    "Polygon (MATIC)": "MATIC-USD", 
-    "Solana (SOL)": "SOL-USD",
-    "Avalanche (AVAX)": "AVAX-USD", 
     "Base (ETH)": "ETH-USD", 
+    "Solana (SOL)": "SOL-USD", 
     "Link (LINK)": "LINK-USD", 
-    "✍️ Otro (Escribir manual)": "MANUAL"
+    "✍️ Otro": "MANUAL"
 }
 
 # ==============================================================================
-#  2. FUNCIONES AUXILIARES (CONEXIÓN Y LÓGICA)
+#  2. FUNCIONES AUXILIARES
 # ==============================================================================
 
 def get_web3_session(rpc_url):
-    """Crea una sesión Web3 con User-Agent y Timeout ampliado (60s)."""
+    """Sesión Web3 con Headers de navegador y Timeout seguro"""
     s = requests.Session()
-    s.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
-    # Timeout de 60 segundos para dar tiempo a Alchemy a procesar la llamada masiva
-    return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60}))
+    s.headers.update({'User-Agent': 'Mozilla/5.0 Chrome/120.0.0.0 Safari/537.36'})
+    return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 30}))
 
 def connect_robust(network_name):
-    """Conecta a la red priorizando claves API secretas (Alchemy)."""
+    """Conexión inteligente: Secrets > Lista Pública"""
     config = NETWORKS[network_name]
-    rpcs = config["rpcs"][:] # Copia de la lista
+    rpcs = config["rpcs"][:] # Copia
     
-    # Inyectar secreto (Alchemy/Infura) si existe en la configuración
     secret_key = f"{network_name.upper()}_RPC_URL"
-    is_private = False
+    used_private = False
     
+    # Inyección de Secreto
     if secret_key in st.secrets:
-        # Limpiamos espacios en blanco o comillas extra
         private_rpc = st.secrets[secret_key].strip().replace('"', '').replace("'", "")
         rpcs.insert(0, private_rpc)
-        is_private = True
+        used_private = True
         
     for rpc in rpcs:
         try:
             w3 = get_web3_session(rpc)
             if w3.is_connected():
-                # Verificación de Chain ID para asegurar que estamos en la red correcta
                 if w3.eth.chain_id == config["chain_id"]:
-                    return w3, rpc, is_private
-        except: 
-            continue
+                    return w3, rpc, used_private
+        except: continue
     return None, None, False
-
-def process_user_data(w3, network, user_address):
-    """Descarga y procesa todo el portafolio usando UiPoolDataProvider."""
-    config = NETWORKS[network]
-    ui_provider_addr = w3.to_checksum_address(config["ui_pool_data_provider"])
-    pool_provider_addr = w3.to_checksum_address(config["pool_address_provider"])
-    
-    ui_contract = w3.eth.contract(address=ui_provider_addr, abi=UI_ABI)
-    
-    # 1. Obtener DATOS GLOBALES DE AAVE
-    # Usamos Alchemy, así que no forzamos 'gas' manualmente para evitar conflictos
-    reserves_data, currency_info = ui_contract.functions.getReservesData(pool_provider_addr).call()
-    
-    base_currency_unit = currency_info[0]
-    base_currency_price_usd = currency_info[1] / (10 ** 8) 
-    
-    reserves_map = {}
-    for r in reserves_data:
-        asset = r[0]
-        # Calcular precio en USD
-        price = (r[7] / base_currency_unit) * base_currency_price_usd 
-        reserves_map[asset] = {
-            "symbol": r[2], 
-            "decimals": r[3], 
-            "ltv": r[4]/10000, 
-            "lt": r[5]/10000, 
-            "price_usd": price
-        }
-
-    # 2. Obtener DATOS DEL USUARIO (Saldos)
-    user_reserves, _ = ui_contract.functions.getUserReservesData(pool_provider_addr, user_address).call()
-    
-    portfolio = []
-    total_collateral_usd = 0
-    total_debt_usd = 0
-    weighted_lt_numerator = 0
-    
-    for u in user_reserves:
-        asset = u[0]
-        if asset not in reserves_map: continue
-        
-        market = reserves_map[asset]
-        decimals = market["decimals"]
-        
-        # Calcular montos
-        col_amt = u[1] / (10 ** decimals)
-        debt_amt = u[3] / (10 ** decimals)
-        
-        col_val = col_amt * market["price_usd"]
-        debt_val = debt_amt * market["price_usd"]
-        
-        # Filtro para ocultar polvo (menos de $1)
-        if col_val > 1 or debt_val > 1:
-            portfolio.append({
-                "Activo": market["symbol"],
-                "Colateral": col_amt,
-                "Valor Colateral ($)": col_val,
-                "Deuda": debt_amt,
-                "Valor Deuda ($)": debt_val,
-                "LT (%)": market["lt"],
-                "Precio ($)": market["price_usd"]
-            })
-            
-            if u[2] and col_val > 0: # Si es colateral activo
-                total_collateral_usd += col_val
-                weighted_lt_numerator += col_val * market["lt"]
-            total_debt_usd += debt_val
-
-    # Calcular métricas agregadas
-    avg_lt = weighted_lt_numerator / total_collateral_usd if total_collateral_usd > 0 else 0
-    hf = (total_collateral_usd * avg_lt) / total_debt_usd if total_debt_usd > 0 else 999.0
-        
-    return portfolio, total_collateral_usd, total_debt_usd, avg_lt, hf
 
 # ==============================================================================
 #  3. INTERFAZ DE USUARIO (TABS)
 # ==============================================================================
 
-tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner Portafolio Real"])
+tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner Real (Modo Seguro)"])
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 1: CALCULADORA ESTÁTICA
+#  PESTAÑA 1: CALCULADORA (CÓDIGO ORIGINAL COMPLETO)
 # ------------------------------------------------------------------------------
 with tab_calc:
     st.markdown("### Simulador Estático de Defensa")
@@ -291,22 +152,19 @@ with tab_calc:
         c_threshold = st.number_input("Umbral Defensa (%)", value=15.0, step=1.0, key="c_th") / 100.0
         c_zones = st.slider("Zonas de Defensa", 1, 10, 5, key="c_zones")
 
-    # Cálculos principales
+    # Cálculos
     c_collat_usd = c_capital * c_leverage
     c_debt_usd = c_collat_usd - c_capital
     c_collat_amt = c_collat_usd / c_price
     
-    # Liq Inicial
     if c_collat_amt > 0 and c_ltv > 0:
         c_liq_price = c_debt_usd / (c_collat_amt * c_ltv)
         c_target_ratio = c_liq_price / c_price 
         c_cushion_pct = (c_price - c_liq_price) / c_price
     else:
-        c_liq_price = 0
-        c_target_ratio = 0
-        c_cushion_pct = 0
+        c_liq_price = 0; c_target_ratio = 0; c_cushion_pct = 0
     
-    # Generación de tabla en cascada
+    # Bucle Cascada
     cascade_data = []
     curr_collat = c_collat_amt
     curr_liq = c_liq_price
@@ -330,6 +188,7 @@ with tab_calc:
         
         final_val = curr_collat * c_target
         net_prof = (final_val - c_debt_usd) - total_inv
+        
         roi = (net_prof / total_inv) * 100 if total_inv > 0 else 0
         ratio = roi / (drop_pct * 100) if drop_pct > 0 else 0
         
@@ -350,17 +209,11 @@ with tab_calc:
     
     st.divider()
     st.dataframe(df_calc.style.format({
-        "Precio Activación": "${:,.2f}", 
-        "Caída (%)": "{:.2%}", 
-        "Inversión Extra ($)": "${:,.0f}", 
-        "Total Invertido ($)": "${:,.0f}", 
-        "Nuevo P. Liq": "${:,.2f}", 
-        "Beneficio ($)": "${:,.0f}", 
-        "ROI (%)": "{:.2f}%", 
-        "Ratio": "{:.2f}"
+        "Precio Activación": "${:,.2f}", "Caída (%)": "{:.2%}", "Inversión Extra ($)": "${:,.0f}", 
+        "Total Invertido ($)": "${:,.0f}", "Nuevo P. Liq": "${:,.2f}", "Beneficio ($)": "${:,.0f}", 
+        "ROI (%)": "{:.2f}%", "Ratio": "{:.2f}"
     }), use_container_width=True)
     
-    # Informe Ejecutivo
     if not df_calc.empty:
         st.divider()
         last_row = df_calc.iloc[-1]
@@ -372,7 +225,7 @@ with tab_calc:
         """)
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 2: MOTOR DE BACKTESTING
+#  PESTAÑA 2: BACKTEST (CÓDIGO ORIGINAL COMPLETO)
 # ------------------------------------------------------------------------------
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica")
@@ -411,7 +264,7 @@ with tab_backtest:
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
                 
-                ltv_liq = c_ltv # Usamos el LTV de la pestaña 1
+                ltv_liq = c_ltv # Heredado de la pestaña 1 por coherencia
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
                 target_ratio = liq_price / start_price 
                 
@@ -482,107 +335,110 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 3: ESCÁNER DE PORTAFOLIO (COMPLETA CON ALCHEMY SUPPORT)
+#  PESTAÑA 3: ESCÁNER REAL (MODO ROBUSTO / LIGERO)
 # ------------------------------------------------------------------------------
 with tab_onchain:
-    st.markdown("### 📡 Escáner de Portafolio Aave V3 (Multi-Colateral)")
-    st.caption("Detecta automáticamente todos tus activos y simula una caída global del mercado.")
-
+    st.markdown("### 📡 Escáner Aave V3 (Modo Seguro)")
+    st.caption("Utiliza una conexión ligera verificada para evitar bloqueos en Base/L2s. Compatible con Multi-Colateral.")
+    
     col_net1, col_net2 = st.columns([1, 3])
     with col_net1:
         selected_network = st.selectbox("Red", list(NETWORKS.keys()))
     with col_net2:
-        user_address_input = st.text_input("Wallet Address (0x...)", placeholder="0x...")
-        
-    if st.button("🔍 Analizar Portafolio"):
-        if not user_address_input:
-            st.warning("Introduce una dirección")
+        user_address = st.text_input("Wallet Address (0x...)", placeholder="0x...")
+    
+    if st.button("🔍 Analizar"):
+        if not user_address:
+            st.warning("Falta dirección")
         else:
-            with st.spinner(f"Conectando a {selected_network} y descargando datos masivos..."):
-                # Usamos la conexión robusta
-                w3, rpc, is_private = connect_robust(selected_network)
+            with st.spinner(f"Conectando a {selected_network}..."):
+                w3, rpc_used, is_private = connect_robust(selected_network)
                 if not w3:
-                    st.error("⚠️ Todos los nodos públicos gratuitos están saturados.")
-                    st.info("Configura BASE_RPC_URL en Secrets con una clave de Alchemy.")
+                    st.error("Error de conexión RPC. Revisa tus Secrets.")
                     st.stop()
                 
                 try:
-                    valid_addr = w3.to_checksum_address(user_address_input)
-                    portfolio, tot_col, tot_debt, avg_lt, hf = process_user_data(w3, selected_network, valid_addr)
+                    # 1. Obtener Pool Real (Preguntando al Jefe)
+                    provider_addr = w3.to_checksum_address(NETWORKS[selected_network]["pool_provider"])
+                    provider_contract = w3.eth.contract(address=provider_addr, abi=AAVE_ABI)
+                    pool_addr = provider_contract.functions.getPool().call()
                     
-                    # Indicador de conexión
-                    connection_msg = f"🔒 Nodo Privado (Alchemy)" if is_private else f"🌍 Nodo Público ({rpc[:25]}...)"
-                    st.success(f"✅ Datos cargados. Conexión: {connection_msg}")
+                    # 2. Llamada Ligera (getUserAccountData) - ESTA NO FALLA
+                    pool_contract = w3.eth.contract(address=pool_addr, abi=AAVE_ABI)
+                    valid_addr = w3.to_checksum_address(user_address)
+                    data = pool_contract.functions.getUserAccountData(valid_addr).call()
                     
+                    # 3. Procesar Datos
+                    col_usd = data[0] / 10**8
+                    debt_usd = data[1] / 10**8
+                    lt_avg = data[3] / 10000 # Umbral de liquidación promedio ponderado
+                    hf = data[5] / 10**18
+                    
+                    # Estado de conexión
+                    status_msg = f"🔒 Privado (Alchemy)" if is_private else f"🌍 Público ({rpc_used[:20]}...)"
+                    st.success(f"✅ Datos recibidos. Conexión: {status_msg}")
+                    
+                    # Métricas
                     m1, m2, m3, m4 = st.columns(4)
-                    m1.metric("Health Factor", f"{hf:.2f}", delta="Riesgo" if hf < 1.1 else "Seguro", delta_color="normal" if hf > 1.1 else "inverse")
-                    m2.metric("Colateral Total", f"${tot_col:,.2f}")
-                    m3.metric("Deuda Total", f"${tot_debt:,.2f}")
-                    m4.metric("Umbral Liq. (Avg)", f"{avg_lt:.2%}", help="Promedio ponderado")
+                    m1.metric("Salud (HF)", f"{hf:.2f}", delta_color="normal" if hf>1.1 else "inverse")
+                    m2.metric("Colateral Total", f"${col_usd:,.2f}")
+                    m3.metric("Deuda Total", f"${debt_usd:,.2f}")
+                    m4.metric("Liq. Threshold (Avg)", f"{lt_avg:.2%}", help="Media ponderada de tus activos")
                     
-                    st.divider()
-                    
-                    st.subheader("💼 Composición del Portafolio")
-                    if portfolio:
-                        st.dataframe(
-                            pd.DataFrame(portfolio).style.format({
-                                "Colateral": "{:.4f}", 
-                                "Valor Colateral ($)": "${:,.2f}", 
-                                "Deuda": "{:.4f}", 
-                                "Valor Deuda ($)": "${:,.2f}", 
-                                "LT (%)": "{:.1%}", 
-                                "Precio ($)": "${:,.2f}"
-                            }), 
-                            use_container_width=True
-                        )
-                    else:
-                        st.warning("No se encontraron activos en Aave V3.")
-                    
-                    if tot_debt > 0:
+                    # Lógica de Defensa Multi-Colateral
+                    if debt_usd > 0:
                         st.divider()
-                        st.subheader("📉 Simulación: Caída General del Mercado")
-                        st.info("Este escenario asume que **TODOS** tus activos de colateral caen simultáneamente el mismo porcentaje.")
+                        st.subheader("📉 Simulación de Estrés (Portafolio Global)")
+                        st.info("Calculamos cuánto capital necesitas si **todo tu portafolio** pierde valor simultáneamente.")
                         
-                        # Margen hasta liquidación
-                        if (tot_col * avg_lt) > 0:
-                            liquidation_drop = 1 - (tot_debt / (tot_col * avg_lt))
+                        # Cálculo de caída máxima
+                        # Col * (1-drop) * LT = Deuda  ->  1-drop = Deuda/(Col*LT)
+                        if (col_usd * lt_avg) > 0:
+                            max_drop = 1 - (debt_usd / (col_usd * lt_avg))
                         else:
-                            liquidation_drop = 0
+                            max_drop = 0
                             
-                        st.metric("Margen de Caída hasta Liquidación", f"{liquidation_drop:.2%}", delta="Distancia de Seguridad", delta_color="normal")
+                        st.metric("Margen Caída Mercado", f"{max_drop:.2%}", delta="Distancia a Liquidación")
                         
                         # Tabla de Defensa
-                        st.markdown("#### 🛡️ Plan de Defensa (Inyección de Capital)")
-                        target_hf = st.number_input("Health Factor Objetivo tras defensa", value=1.05, step=0.05, min_value=1.01)
+                        st.markdown("#### 🛡️ Tabla de Defensa (Inyección en USD)")
+                        target_hf = st.number_input("HF Objetivo tras defensa", 1.05, 2.0, 1.05)
                         
                         sim_data = []
-                        start_drop = int(liquidation_drop * 100)
-                        for drop_pct in range(start_drop + 5, start_drop + 55, 5):
-                            drop = drop_pct / 100.0
+                        start_drop = int(max_drop * 100)
+                        # Escenarios desde la liquidación + 5% hasta + 55%
+                        for d in range(start_drop + 5, start_drop + 55, 5):
+                            drop = d / 100.0
                             
-                            shocked_col = tot_col * (1 - drop)
-                            shocked_hf = (shocked_col * avg_lt) / tot_debt
+                            # Escenario de Crash
+                            shock_col = col_usd * (1 - drop)
+                            shock_hf = (shock_col * lt_avg) / debt_usd
                             
-                            needed_capital = tot_debt - ((shocked_col * avg_lt) / target_hf)
-                            if needed_capital < 0: needed_capital = 0
+                            # Capital necesario
+                            # (ShockCol * LT) / (Deuda - Cap) = TargetHF
+                            needed = debt_usd - ((shock_col * lt_avg) / target_hf)
+                            if needed < 0: needed = 0
                             
-                            new_debt = tot_debt - needed_capital
-                            final_hf = (shocked_col * avg_lt) / new_debt if new_debt > 0 else 999.0
+                            # Nuevo HF real
+                            new_debt = debt_usd - needed
+                            final_hf = (shock_col * lt_avg) / new_debt if new_debt > 0 else 999.0
                             
                             sim_data.append({
-                                "Caída Mercado": f"-{drop_pct}%",
-                                "HF (Sin Defensa)": f"{shocked_hf:.2f}",
-                                "Capital a Inyectar ($)": needed_capital,
+                                "Caída Mercado": f"-{d}%",
+                                "HF (Riesgo)": f"{shock_hf:.2f}",
+                                "Inyectar (USDC)": needed,
                                 "Nuevo HF": f"{final_hf:.2f}"
                             })
                             
                         st.dataframe(
-                            pd.DataFrame(sim_data).style.format({"Capital a Inyectar ($)": "${:,.2f}"})
-                            .background_gradient(subset=["Capital a Inyectar ($)"], cmap="Reds"),
+                            pd.DataFrame(sim_data).style.format({"Inyectar (USDC)": "${:,.2f}"})
+                            .background_gradient(subset=["Inyectar (USDC)"], cmap="Reds"),
                             use_container_width=True
                         )
-
+                    else:
+                        st.success("Posición sin deuda. Estás 100% seguro.")
+                        
                 except Exception as e:
-                    st.error(f"Error procesando datos: {e}")
+                    st.error(f"Error técnico: {e}")
                     if "transact" in str(e):
-                        st.warning("⚠️ El nodo ha rechazado la consulta masiva. SOLUCIÓN: Configura una clave de Alchemy en los Secrets.")
+                        st.warning("El nodo rechazó la llamada. Intenta recargar.")
