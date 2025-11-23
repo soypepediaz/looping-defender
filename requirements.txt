@@ -4,3 +4,5 @@ plotly
 matplotlib
 jinja2
 yfinance
+web3
+
