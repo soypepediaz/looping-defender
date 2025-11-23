@@ -6,13 +6,38 @@ from datetime import date, timedelta
 from web3 import Web3
 
 # --- Configuración de la Página ---
-st.set_page_config(page_title="Looping Master - Pro", layout="wide")
+st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
-# --- CONFIGURACIÓN WEB3 (ARBITRUM) ---
-ARBITRUM_RPC = "https://arb1.arbitrum.io/rpc" # Nodo público oficial
-AAVE_V3_POOL_ADDRESS = "0x794a61358D6845594F94dc1DB02A252b5b4814aD" # Aave V3 Pool en Arbitrum
+# --- CONFIGURACIÓN MULTI-CADENA (AAVE V3) ---
+# Diccionario con RPCs públicos y direcciones del Pool de Aave V3
+NETWORKS = {
+    "Arbitrum": {
+        "rpc": "https://arb1.arbitrum.io/rpc",
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+    },
+    "Ethereum Mainnet": {
+        "rpc": "https://eth.llamarpc.com", 
+        "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+    },
+    "Optimism": {
+        "rpc": "https://mainnet.optimism.io",
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+    },
+    "Polygon (Matic)": {
+        "rpc": "https://polygon-rpc.com",
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+    },
+    "Base": {
+        "rpc": "https://mainnet.base.org",
+        "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f"
+    },
+    "Avalanche": {
+        "rpc": "https://api.avax.network/ext/bc/C/rpc",
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+    }
+}
 
 # ABI Mínimo para leer getUserAccountData
 AAVE_ABI = [
@@ -34,17 +59,20 @@ AAVE_ABI = [
 
 # --- DICCIONARIO DE ACTIVOS ---
 ASSET_MAP = {
-    "Bitcoin (WBTC)": "BTC-USD",
-    "Ethereum (WETH)": "ETH-USD",
+    "Bitcoin (WBTC/BTC)": "BTC-USD",
+    "Ethereum (WETH/ETH)": "ETH-USD",
     "Arbitrum (ARB)": "ARB-USD",
+    "Optimism (OP)": "OP-USD",
+    "Polygon (MATIC)": "MATIC-USD",
     "Solana (SOL)": "SOL-USD",
-    "GMX (GMX)": "GMX-USD",
+    "Avalanche (AVAX)": "AVAX-USD",
+    "Base (ETH)": "ETH-USD", # En Base se usa mucho WETH
     "Link (LINK)": "LINK-USD",
     "✍️ Otro (Escribir manual)": "MANUAL"
 }
 
 # TABS
-tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner Aave (Arbitrum)"])
+tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner On-Chain"])
 
 # ==============================================================================
 #  PESTAÑA 1: CALCULADORA
@@ -99,7 +127,6 @@ with tab_calc:
         drop_pct = (c_price - trig_p) / c_price
         targ_liq = trig_p * c_target_ratio
         
-        # Protección contra división por cero
         if targ_liq > 0:
             need_col = c_debt_usd / (targ_liq * c_ltv)
             add_col = need_col - curr_collat
@@ -196,7 +223,7 @@ with tab_backtest:
                     action, cost_today = "Hold", 0.0
                     
                     if low <= trigger_price and not is_liquidated:
-                        defense_price = min(float(row['Open']), trigger_price) # Simplificado
+                        defense_price = min(float(row['Open']), trigger_price) 
                         
                         if defense_price <= liq_price:
                             is_liquidated = True
@@ -252,14 +279,21 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ==============================================================================
-#  PESTAÑA 3: ON-CHAIN SCANNER (AAVE ARBITRUM)
+#  PESTAÑA 3: ON-CHAIN SCANNER (MULTI-CHAIN)
 # ==============================================================================
 with tab_onchain:
-    st.markdown("### 📡 Escáner de Posiciones Aave V3 (Arbitrum)")
-    st.caption("Introduce una dirección pública para leer su salud, deuda y colateral en tiempo real.")
+    st.markdown("### 📡 Escáner de Posiciones Aave V3 (Multi-Chain)")
+    st.caption("Analiza tu salud, deuda y calcula defensas en cualquier red EVM soportada.")
 
-    # Input Address
-    user_address = st.text_input("Dirección de Wallet (0x...)", placeholder="0x1234...")
+    # 1. SELECTOR DE RED
+    col_net1, col_net2 = st.columns([1, 3])
+    with col_net1:
+        selected_network = st.selectbox("Selecciona la Red", list(NETWORKS.keys()))
+        rpc_url = NETWORKS[selected_network]["rpc"]
+        pool_address = NETWORKS[selected_network]["pool_address"]
+    
+    with col_net2:
+        user_address = st.text_input("Dirección de Wallet (0x...)", placeholder="0x...")
     
     # Botón de análisis
     if st.button("🔍 Analizar Posición On-Chain"):
@@ -267,34 +301,33 @@ with tab_onchain:
             st.warning("Por favor, introduce una dirección.")
         else:
             try:
-                # 1. Conexión Web3
-                w3 = Web3(Web3.HTTPProvider(ARBITRUM_RPC))
+                # 1. Conexión Web3 dinámica
+                w3 = Web3(Web3.HTTPProvider(rpc_url))
                 if not w3.is_connected():
-                    st.error("Error conectando al nodo de Arbitrum.")
+                    st.error(f"No se pudo conectar al nodo de {selected_network}. La red puede estar congestionada.")
                     st.stop()
                 
-                # Validar checksum address
                 try:
                     valid_address = w3.to_checksum_address(user_address)
+                    valid_pool = w3.to_checksum_address(pool_address)
                 except:
                     st.error("Dirección inválida.")
                     st.stop()
 
                 # 2. Llamada al contrato
-                aave_contract = w3.eth.contract(address=AAVE_V3_POOL_ADDRESS, abi=AAVE_ABI)
+                aave_contract = w3.eth.contract(address=valid_pool, abi=AAVE_ABI)
                 
-                with st.spinner("Leyendo Blockchain..."):
-                    # user_data devuelve: totalCollateralBase, totalDebtBase, availBorrows, currentLiqThreshold, ltv, healthFactor
+                with st.spinner(f"Leyendo Aave V3 en {selected_network}..."):
                     user_data = aave_contract.functions.getUserAccountData(valid_address).call()
                 
-                # 3. Procesar Datos (Aave V3 base currency es USD con 8 decimales)
+                # 3. Procesar Datos (Aave V3 devuelve 8 decimales en modo base USD)
                 total_collateral_usd = user_data[0] / 10**8
                 total_debt_usd = user_data[1] / 10**8
-                current_liq_threshold = user_data[3] / 10000 # Viene en formato 8250 = 82.5%
-                health_factor = user_data[5] / 10**18 # Viene con 18 decimales
+                current_liq_threshold = user_data[3] / 10000 
+                health_factor = user_data[5] / 10**18
                 
                 # --- MOSTRAR RESULTADOS ---
-                st.success("✅ Datos obtenidos correctamente de Arbitrum")
+                st.success(f"✅ Datos obtenidos correctamente de {selected_network}")
                 
                 met1, met2, met3, met4 = st.columns(4)
                 met1.metric("Health Factor", f"{health_factor:.2f}", 
@@ -308,33 +341,44 @@ with tab_onchain:
                 
                 # --- CONECTAR CON SIMULADOR ---
                 st.subheader("🛠️ Simular Estrategia de Defensa")
-                st.info("Para calcular los niveles de defensa, necesitamos saber qué activo quieres usar como referencia de precio (el que más te preocupa que baje).")
                 
-                col_sim1, col_sim2 = st.columns(2)
+                col_sim1, col_sim2, col_sim3 = st.columns(3)
+                
                 with col_sim1:
-                    sim_asset = st.selectbox("Activo de Referencia", ["Bitcoin (WBTC)", "Ethereum (WETH)", "Arbitrum (ARB)", "Solana (SOL)"], key="sim_asset")
-                    sim_ticker = ASSET_MAP[sim_asset]
+                    sim_asset = st.selectbox("Activo de Referencia", list(ASSET_MAP.keys()), key="sim_asset")
+                    if ASSET_MAP[sim_asset] == "MANUAL":
+                        sim_ticker = st.text_input("Ticker Manual", "ETH-USD")
+                    else:
+                        sim_ticker = ASSET_MAP[sim_asset]
                 
                 with col_sim2:
-                    # Traer precio real de Yahoo para ese activo
-                    try:
-                        ticker_data = yf.Ticker(sim_ticker)
-                        current_market_price = ticker_data.history(period="1d")['Close'].iloc[-1]
-                        st.metric(f"Precio Actual {sim_ticker}", f"${current_market_price:,.2f}")
-                    except:
-                        current_market_price = 0
-                        st.warning("No se pudo obtener precio actual.")
+                    # Input para modificar el umbral de defensa
+                    sim_threshold_input = st.number_input("Umbral de Defensa (%)", value=15.0, step=1.0, min_value=1.0, max_value=50.0) / 100.0
 
+                # Obtener precio y calcular
+                try:
+                    ticker_data = yf.Ticker(sim_ticker)
+                    current_market_price = ticker_data.history(period="1d")['Close'].iloc[-1]
+                except:
+                    current_market_price = 0
+                
+                with col_sim3:
+                    st.metric(f"Precio Mercado ({sim_ticker})", f"${current_market_price:,.2f}")
+
+                # --- CÁLCULO DE LIQUIDACIÓN Y TABLA ---
                 if current_market_price > 0 and total_debt_usd > 0:
-                    st.markdown("#### 🛡️ Plan de Defensa Generado (Basado en datos reales)")
                     
-                    # Usamos la lógica de la pestaña 1 pero con datos inyectados
-                    # Asumimos que todo el colateral se comporta como el activo seleccionado (Worst Case Scenario / Simplificación)
+                    # 1. Calcular Precio de Liquidación Actual (Estimado)
+                    # Asumiendo que todo el colateral es del activo seleccionado (Stress Test)
                     sim_collat_amt = total_collateral_usd / current_market_price
                     sim_liq_price = total_debt_usd / (sim_collat_amt * current_liq_threshold)
                     
-                    # Parametros de usuario para la simulación
-                    sim_threshold = 0.15 # 15% por defecto
+                    # Mostrar Precio de Liquidación Actual
+                    st.metric("Precio Liquidación Actual (Est.)", f"${sim_liq_price:,.2f}", 
+                              delta=f"{(current_market_price - sim_liq_price):,.2f}$ de margen", delta_color="normal")
+                    
+                    st.markdown("#### 🛡️ Plan de Defensa Generado")
+                    
                     sim_target_ratio = sim_liq_price / current_market_price
                     
                     sim_cascade = []
@@ -342,13 +386,18 @@ with tab_onchain:
                     sim_curr_liq = sim_liq_price
                     sim_cum_cost = 0.0
                     
-                    for i in range(1, 6): # 5 zonas
-                        trig = sim_curr_liq * (1 + sim_threshold)
+                    # Usamos el sim_threshold_input que el usuario acaba de definir
+                    for i in range(1, 6): 
+                        trig = sim_curr_liq * (1 + sim_threshold_input)
                         targ = trig * sim_target_ratio
                         
                         need_c = total_debt_usd / (targ * current_liq_threshold)
-                        add_c = need_c - sim_curr_collat
-                        cost = add_c * trig
+                        add_c = need_c - sim_curr_collat # Cantidad de tokens
+                        
+                        # Si ya tenemos suficiente colateral para ese nivel (raro en cascada, pero posible), es 0
+                        if add_c < 0: add_c = 0
+                            
+                        cost = add_c * trig # Costo en USD al precio del trigger
                         
                         sim_cum_cost += cost
                         sim_curr_collat += add_c
@@ -371,7 +420,10 @@ with tab_onchain:
                     }), use_container_width=True)
                     
                 elif total_debt_usd == 0:
-                    st.success("Esta billetera no tiene deuda activa. No hay riesgo de liquidación.")
+                    st.success("Esta billetera no tiene deuda activa. ¡Estás a salvo!")
+                else:
+                    st.warning("No se pudo obtener el precio del activo de referencia.")
 
             except Exception as e:
-                st.error(f"Error leyendo On-Chain: {e}")
+                st.error(f"Error conectando a {selected_network}: {e}")
+                st.info("Inténtalo de nuevo. Los nodos públicos a veces se saturan.")
