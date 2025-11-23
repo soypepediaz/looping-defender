@@ -3,50 +3,66 @@ import pandas as pd
 import plotly.graph_objects as go
 import yfinance as yf
 from datetime import date, timedelta
+from web3 import Web3
 
 # --- Configuración de la Página ---
-st.set_page_config(page_title="Looping Master - Calculator & Backtest", layout="wide")
+st.set_page_config(page_title="Looping Master - Pro", layout="wide")
 
-st.title("🛡️ Looping Master: Calculadora & Backtesting")
+st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
-# --- DICCIONARIO DE ACTIVOS (CONFIGURACIÓN) ---
+# --- CONFIGURACIÓN WEB3 (ARBITRUM) ---
+ARBITRUM_RPC = "https://arb1.arbitrum.io/rpc" # Nodo público oficial
+AAVE_V3_POOL_ADDRESS = "0x794a61358D6845594F94dc1DB02A252b5b4814aD" # Aave V3 Pool en Arbitrum
+
+# ABI Mínimo para leer getUserAccountData
+AAVE_ABI = [
+    {
+        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
+        "name": "getUserAccountData",
+        "outputs": [
+            {"internalType": "uint256", "name": "totalCollateralBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "totalDebtBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "availableBorrowsBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "currentLiquidationThreshold", "type": "uint256"},
+            {"internalType": "uint256", "name": "ltv", "type": "uint256"},
+            {"internalType": "uint256", "name": "healthFactor", "type": "uint256"}
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    }
+]
+
+# --- DICCIONARIO DE ACTIVOS ---
 ASSET_MAP = {
-    "Bitcoin (BTC)": "BTC-USD",
-    "Ethereum (ETH)": "ETH-USD",
+    "Bitcoin (WBTC)": "BTC-USD",
+    "Ethereum (WETH)": "ETH-USD",
+    "Arbitrum (ARB)": "ARB-USD",
     "Solana (SOL)": "SOL-USD",
-    "Binance Coin (BNB)": "BNB-USD",
-    "Hyperliquid (HYPE)": "HYPE-USD", 
-    "XRP (XRP)": "XRP-USD",
-    "Dogecoin (DOGE)": "DOGE-USD",
-    "Cardano (ADA)": "ADA-USD",
-    "Avalanche (AVAX)": "AVAX-USD",
+    "GMX (GMX)": "GMX-USD",
     "Link (LINK)": "LINK-USD",
     "✍️ Otro (Escribir manual)": "MANUAL"
 }
 
-# Usamos Tabs para separar la calculadora estática del backtest temporal
-tab_calc, tab_backtest = st.tabs(["🧮 Calculadora de Escenarios", "📉 Backtest Histórico"])
+# TABS
+tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner Aave (Arbitrum)"])
 
 # ==============================================================================
-#  PESTAÑA 1: CALCULADORA DE ESCENARIOS
+#  PESTAÑA 1: CALCULADORA
 # ==============================================================================
 with tab_calc:
     st.markdown("### Simulador Estático de Defensa")
     
-    # --- Inputs Calculadora ---
     col_input1, col_input2, col_input3 = st.columns(3)
     
     with col_input1:
-        # Selector de activo
         selected_asset_calc = st.selectbox("Seleccionar Activo", list(ASSET_MAP.keys()), key="sel_asset_c")
-        
         if ASSET_MAP[selected_asset_calc] == "MANUAL":
-            c_asset_name = st.text_input("Escribe el Ticker o Nombre", value="PEPE", key="c_asset_man")
+            c_asset_name = st.text_input("Ticker", value="PEPE", key="c_asset_man")
         else:
             c_asset_name = selected_asset_calc.split("(")[1].replace(")", "")
             
         c_price = st.number_input(f"Precio Actual {c_asset_name} ($)", value=100000.0, step=100.0, key="c_price")
-        c_target = st.number_input(f"Precio Objetivo (Take Profit) ($)", value=130000.0, step=100.0, key="c_target")
+        c_target = st.number_input(f"Precio Objetivo ($)", value=130000.0, step=100.0, key="c_target")
         
     with col_input2:
         c_capital = st.number_input("Capital Inicial ($)", value=10000.0, step=1000.0, key="c_capital")
@@ -57,15 +73,20 @@ with tab_calc:
         c_threshold = st.number_input("Umbral Defensa (%)", value=15.0, step=1.0, key="c_th") / 100.0
         c_zones = st.slider("Zonas de Defensa", 1, 10, 5, key="c_zones")
 
-    # --- Cálculos Calculadora ---
+    # Cálculos
     c_collat_usd = c_capital * c_leverage
     c_debt_usd = c_collat_usd - c_capital
     c_collat_amt = c_collat_usd / c_price
     
     # Liq Inicial
-    c_liq_price = c_debt_usd / (c_collat_amt * c_ltv)
-    c_target_ratio = c_liq_price / c_price 
-    c_cushion_pct = (c_price - c_liq_price) / c_price
+    if c_collat_amt > 0 and c_ltv > 0:
+        c_liq_price = c_debt_usd / (c_collat_amt * c_ltv)
+        c_target_ratio = c_liq_price / c_price 
+        c_cushion_pct = (c_price - c_liq_price) / c_price
+    else:
+        c_liq_price = 0
+        c_target_ratio = 0
+        c_cushion_pct = 0
     
     # Bucle Cascada
     cascade_data = []
@@ -76,20 +97,24 @@ with tab_calc:
     for i in range(1, c_zones + 1):
         trig_p = curr_liq * (1 + c_threshold)
         drop_pct = (c_price - trig_p) / c_price
-        
         targ_liq = trig_p * c_target_ratio
         
-        need_col = c_debt_usd / (targ_liq * c_ltv)
-        add_col = need_col - curr_collat
+        # Protección contra división por cero
+        if targ_liq > 0:
+            need_col = c_debt_usd / (targ_liq * c_ltv)
+            add_col = need_col - curr_collat
+        else:
+            add_col = 0
+            
         cost = add_col * trig_p
-        
         cum_cost += cost
         curr_collat += add_col
         total_inv = c_capital + cum_cost
         
         final_val = curr_collat * c_target
         net_prof = (final_val - c_debt_usd) - total_inv
-        roi = (net_prof / total_inv) * 100
+        
+        roi = (net_prof / total_inv) * 100 if total_inv > 0 else 0
         ratio = roi / (drop_pct * 100) if drop_pct > 0 else 0
         
         cascade_data.append({
@@ -107,72 +132,27 @@ with tab_calc:
 
     df_calc = pd.DataFrame(cascade_data)
     
-    # Output Calculadora (Tabla)
     st.divider()
     st.dataframe(df_calc.style.format({
         "Precio Activación": "${:,.2f}", "Caída (%)": "{:.2%}", "Inversión Extra ($)": "${:,.0f}",
         "Total Invertido ($)": "${:,.0f}", "Nuevo P. Liq": "${:,.2f}", "Beneficio ($)": "${:,.0f}",
         "ROI (%)": "{:.2f}%", "Ratio": "{:.2f}"
     }), use_container_width=True)
-    
-    # --- INFORME EJECUTIVO ---
-    st.divider()
-    if not df_calc.empty:
-        last_row = df_calc.iloc[-1]
-        
-        total_drop_txt = f"{last_row['Caída (%)']:.1%}"
-        trigger_final_txt = f"${last_row['Precio Activación']:,.0f}"
-        zones_txt = c_zones
-        total_invested_txt = f"${last_row['Total Invertido ($)']:,.0f}"
-        new_liq_final_txt = f"${last_row['Nuevo P. Liq']:,.0f}"
-        net_profit_txt = f"${last_row['Beneficio ($)']:,.0f}"
-        roi_final_txt = f"{last_row['ROI (%)']:.2f}%"
-        ratio_txt = f"{last_row['Ratio']:.2f}"
-        
-        report_markdown = f"""
-        ### 📝 Informe Ejecutivo: Estrategia en {c_asset_name}
-        
-        **1. Configuración de Partida**
-        Has iniciado una operación de Looping en **{c_asset_name}** con un capital de **\${c_capital:,.0f}** y un apalancamiento de **{c_leverage}x**.
-        Tu posición comenzó con un precio de liquidación de **\${c_liq_price:,.2f}**, lo que te daba un colchón de seguridad inicial del **{c_cushion_pct:.1%}**.
-        
-        **2. Estrategia de Defensa**
-        Actuamos preventivamente cuando el precio se acerca un **{c_threshold:.1%}** a la liquidación, inyectando más **{c_asset_name}** para recuperar el colchón de seguridad inicial.
-        
-        **3. Escenario Extremo (Zona #{zones_txt})**
-        Si el mercado cae un **{total_drop_txt}** (Precio {c_asset_name}: **{trigger_final_txt}**):
-        * Inversión total necesaria: **{total_invested_txt}**.
-        * Nuevo precio de liquidación blindado: **{new_liq_final_txt}**.
-        
-        **4. Rentabilidad Esperada**
-        Si tras esa caída el precio recupera hasta **\${c_target:,.0f}**:
-        * Beneficio Neto: **{net_profit_txt}**.
-        * ROI Total: **{roi_final_txt}**.
-        * Ratio Eficiencia: **{ratio_txt}**.
-        """
-        st.markdown(report_markdown)
 
 
 # ==============================================================================
-#  PESTAÑA 2: MOTOR DE BACKTESTING (Con Datos Iniciales)
+#  PESTAÑA 2: MOTOR DE BACKTESTING
 # ==============================================================================
 with tab_backtest:
-    st.markdown("### 📉 Validación Histórica (Backtest)")
-    st.caption("Comprueba cómo se habría comportado la estrategia en el pasado real.")
-
-    # --- Inputs Backtest ---
-    col_bt1, col_bt2, col_bt3 = st.columns(3)
+    st.markdown("### 📉 Validación Histórica")
     
+    col_bt1, col_bt2, col_bt3 = st.columns(3)
     with col_bt1:
-        # SELECTOR DE ACTIVO
         selected_asset_bt = st.selectbox("Seleccionar Activo Histórico", list(ASSET_MAP.keys()), key="sel_asset_bt")
-        
         if ASSET_MAP[selected_asset_bt] == "MANUAL":
-            bt_ticker = st.text_input("Escribe el Ticker de Yahoo Finance (ej: DOT-USD)", value="DOT-USD")
+            bt_ticker = st.text_input("Ticker Yahoo", value="DOT-USD")
         else:
             bt_ticker = ASSET_MAP[selected_asset_bt]
-            st.info(f"Ticker seleccionado: `{bt_ticker}`")
-
         bt_capital = st.number_input("Capital Inicial ($)", value=10000.0, key="bt_cap")
     
     with col_bt2:
@@ -183,22 +163,17 @@ with tab_backtest:
         bt_threshold = st.number_input("Umbral Defensa (%)", value=15.0, step=1.0, key="bt_th") / 100.0
         run_bt = st.button("🚀 Ejecutar Backtest", type="primary")
 
-    # --- LÓGICA DEL BACKTEST ---
     if run_bt:
-        with st.spinner(f"Descargando datos de {bt_ticker} y simulando..."):
+        with st.spinner(f"Simulando {bt_ticker}..."):
             try:
-                # 1. Descarga de datos
                 df_hist = yf.download(bt_ticker, start=bt_start_date, end=date.today(), progress=False)
-                
                 if df_hist.empty:
-                    st.error(f"⚠️ No se encontraron datos para {bt_ticker}. Puede que el activo sea muy nuevo o el ticker sea incorrecto.")
+                    st.error("Sin datos.")
                     st.stop()
                 
-                # Aplanar columnas
                 if isinstance(df_hist.columns, pd.MultiIndex):
                     df_hist.columns = df_hist.columns.get_level_values(0)
 
-                # 2. Inicialización
                 start_date_actual = df_hist.index[0].date()
                 start_price = float(df_hist.iloc[0]['Close']) 
                 collateral_usd = bt_capital * bt_leverage
@@ -207,35 +182,24 @@ with tab_backtest:
                 
                 ltv_liq = c_ltv 
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
-                
                 target_ratio = liq_price / start_price 
                 
                 history = []
                 total_injected = 0.0
                 is_liquidated = False
-                liquidated_date = None
                 
-                # 3. Bucle
                 for date_idx, row in df_hist.iterrows():
                     if pd.isna(row['Close']): continue
-
-                    high = float(row['High'])
-                    low = float(row['Low'])
-                    close = float(row['Close'])
+                    high, low, close = float(row['High']), float(row['Low']), float(row['Close'])
                     
                     trigger_price = liq_price * (1 + bt_threshold)
-                    action = "Hold"
-                    cost_today = 0.0
+                    action, cost_today = "Hold", 0.0
                     
-                    # A. Lógica de Defensa
                     if low <= trigger_price and not is_liquidated:
-                        defense_price = trigger_price 
-                        if float(row['Open']) < trigger_price:
-                             defense_price = float(row['Open']) 
+                        defense_price = min(float(row['Open']), trigger_price) # Simplificado
                         
                         if defense_price <= liq_price:
                             is_liquidated = True
-                            liquidated_date = date_idx
                             action = "LIQUIDATED ☠️"
                         else:
                             target_liq_new = defense_price * target_ratio
@@ -249,79 +213,165 @@ with tab_backtest:
                                 liq_price = target_liq_new 
                                 action = "DEFENSA 🛡️"
                     
-                    # B. Check Liquidación
-                    if low <= liq_price and not is_liquidated:
-                         is_liquidated = True
-                         liquidated_date = date_idx
-                         action = "LIQUIDATED ☠️"
+                    if low <= liq_price and not is_liquidated: is_liquidated = True
 
-                    # C. Valoración
                     pos_value = (collateral_amt * close) - debt_usd
-                    total_invested = bt_capital + total_injected
-                    
                     history.append({
                         "Fecha": date_idx,
-                        "Precio Cierre": close,
                         "Acción": action,
                         "Liq Price": liq_price if not is_liquidated else 0,
-                        "Inversión Acumulada": total_invested,
+                        "Inversión Acumulada": bt_capital + total_injected,
                         "Valor Estrategia": pos_value if not is_liquidated else 0,
                         "Valor HODL": (bt_capital / start_price) * close 
                     })
-                    
-                    if is_liquidated:
-                        break
+                    if is_liquidated: break
                 
-                # 4. Resultados
-                if not history:
-                    st.error("No hay suficientes datos.")
-                    st.stop()
-
-                df_res = pd.DataFrame(history)
-                df_res.set_index("Fecha", inplace=True)
-                
+                df_res = pd.DataFrame(history).set_index("Fecha")
                 last_row = df_res.iloc[-1]
-                final_roi_strat = ((last_row['Valor Estrategia'] - last_row['Inversión Acumulada']) / last_row['Inversión Acumulada']) * 100
-                final_roi_hodl = ((last_row['Valor HODL'] - bt_capital) / bt_capital) * 100
                 
-                kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-                kpi1.metric("Estado Final", "LIQUIDADO" if is_liquidated else "VIVO", delta_color="inverse" if is_liquidated else "normal")
-                kpi2.metric("Capital Inyectado", f"${total_injected:,.0f}")
-                kpi3.metric("ROI Estrategia", f"{final_roi_strat:.2f}%", f"${last_row['Valor Estrategia']:,.0f}")
-                kpi4.metric("ROI HODL", f"{final_roi_hodl:.2f}%", delta=f"{final_roi_strat - final_roi_hodl:.2f}% vs Strat")
-
-                # --- GRÁFICO ---
-                st.markdown(f"##### 📈 Evolución con {bt_ticker}")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Resultado", "LIQUIDADO" if is_liquidated else "VIVO")
+                c2.metric("Inyectado Total", f"${total_injected:,.0f}")
+                c3.metric("Valor Final Estrategia", f"${last_row['Valor Estrategia']:,.0f}")
+                
                 fig = go.Figure()
-                fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor Estrategia"], 
-                                         mode='lines', name='Valor Estrategia', line=dict(color='green', width=2), fill='tozeroy', fillcolor='rgba(0, 255, 0, 0.1)'))
-                fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Inversión Acumulada"], 
-                                         mode='lines', name='Total Invertido', line=dict(color='red', dash='dash')))
-                fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor HODL"], 
-                                         mode='lines', name='Valor HODL', line=dict(color='gray', width=1)))
-
-                defense_events = df_res[df_res["Acción"].str.contains("DEFENSA")]
-                if not defense_events.empty:
-                    fig.add_trace(go.Scatter(x=defense_events.index, y=defense_events["Valor Estrategia"],
-                                             mode='markers', name='Inyección Defensa', marker=dict(color='orange', size=12, symbol='diamond')))
+                fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor Estrategia"], name='Estrategia', fill='tozeroy', line=dict(color='green')))
+                fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Inversión Acumulada"], name='Inversión', line=dict(color='red', dash='dash')))
+                
+                events = df_res[df_res["Acción"].str.contains("DEFENSA")]
+                if not events.empty:
+                    fig.add_trace(go.Scatter(x=events.index, y=events["Valor Estrategia"], mode='markers', name='Defensa', marker=dict(color='orange', size=10, symbol='diamond')))
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
-                # --- NUEVA SECCIÓN: DATOS DE ENTRADA ---
                 st.divider()
-                st.subheader("🏁 Datos de Entrada (Operación Inicial)")
-                
-                col_d1, col_d2, col_d3, col_d4 = st.columns(4)
-                col_d1.metric("Fecha Inicio", str(start_date_actual))
-                col_d2.metric("Precio Entrada", f"${start_price:,.2f}")
-                col_d3.metric("Colateral Inicial", f"{collateral_amt:.4f}", f"Valor: ${collateral_usd:,.0f}")
-                col_d4.metric("Deuda Inicial", f"${debt_usd:,.0f}")
-
-                # --- TABLA DE DEFENSAS ---
-                if not defense_events.empty:
-                    st.markdown("##### 🛡️ Detalle de Defensas")
-                    st.dataframe(defense_events[["Precio Cierre", "Liq Price", "Inversión Acumulada", "Valor Estrategia"]].style.format("${:,.2f}"), use_container_width=True)
-                else:
-                    st.success("La estrategia no requirió defensas en este periodo.")
+                st.subheader("🏁 Datos de Entrada")
+                st.write(f"Inicio: {start_date_actual} | Precio Entrada: ${start_price:,.2f} | Deuda Inicial: ${debt_usd:,.0f}")
 
             except Exception as e:
-                st.error(f"Error durante el proceso: {e}")
+                st.error(f"Error: {e}")
+
+# ==============================================================================
+#  PESTAÑA 3: ON-CHAIN SCANNER (AAVE ARBITRUM)
+# ==============================================================================
+with tab_onchain:
+    st.markdown("### 📡 Escáner de Posiciones Aave V3 (Arbitrum)")
+    st.caption("Introduce una dirección pública para leer su salud, deuda y colateral en tiempo real.")
+
+    # Input Address
+    user_address = st.text_input("Dirección de Wallet (0x...)", placeholder="0x1234...")
+    
+    # Botón de análisis
+    if st.button("🔍 Analizar Posición On-Chain"):
+        if not user_address:
+            st.warning("Por favor, introduce una dirección.")
+        else:
+            try:
+                # 1. Conexión Web3
+                w3 = Web3(Web3.HTTPProvider(ARBITRUM_RPC))
+                if not w3.is_connected():
+                    st.error("Error conectando al nodo de Arbitrum.")
+                    st.stop()
+                
+                # Validar checksum address
+                try:
+                    valid_address = w3.to_checksum_address(user_address)
+                except:
+                    st.error("Dirección inválida.")
+                    st.stop()
+
+                # 2. Llamada al contrato
+                aave_contract = w3.eth.contract(address=AAVE_V3_POOL_ADDRESS, abi=AAVE_ABI)
+                
+                with st.spinner("Leyendo Blockchain..."):
+                    # user_data devuelve: totalCollateralBase, totalDebtBase, availBorrows, currentLiqThreshold, ltv, healthFactor
+                    user_data = aave_contract.functions.getUserAccountData(valid_address).call()
+                
+                # 3. Procesar Datos (Aave V3 base currency es USD con 8 decimales)
+                total_collateral_usd = user_data[0] / 10**8
+                total_debt_usd = user_data[1] / 10**8
+                current_liq_threshold = user_data[3] / 10000 # Viene en formato 8250 = 82.5%
+                health_factor = user_data[5] / 10**18 # Viene con 18 decimales
+                
+                # --- MOSTRAR RESULTADOS ---
+                st.success("✅ Datos obtenidos correctamente de Arbitrum")
+                
+                met1, met2, met3, met4 = st.columns(4)
+                met1.metric("Health Factor", f"{health_factor:.2f}", 
+                            delta="Peligro" if health_factor < 1.1 else "Seguro", 
+                            delta_color="normal" if health_factor > 1.1 else "inverse")
+                met2.metric("Colateral Total", f"${total_collateral_usd:,.2f}")
+                met3.metric("Deuda Total", f"${total_debt_usd:,.2f}")
+                met4.metric("Umbral Liq. (Avg)", f"{current_liq_threshold:.2%}")
+                
+                st.divider()
+                
+                # --- CONECTAR CON SIMULADOR ---
+                st.subheader("🛠️ Simular Estrategia de Defensa")
+                st.info("Para calcular los niveles de defensa, necesitamos saber qué activo quieres usar como referencia de precio (el que más te preocupa que baje).")
+                
+                col_sim1, col_sim2 = st.columns(2)
+                with col_sim1:
+                    sim_asset = st.selectbox("Activo de Referencia", ["Bitcoin (WBTC)", "Ethereum (WETH)", "Arbitrum (ARB)", "Solana (SOL)"], key="sim_asset")
+                    sim_ticker = ASSET_MAP[sim_asset]
+                
+                with col_sim2:
+                    # Traer precio real de Yahoo para ese activo
+                    try:
+                        ticker_data = yf.Ticker(sim_ticker)
+                        current_market_price = ticker_data.history(period="1d")['Close'].iloc[-1]
+                        st.metric(f"Precio Actual {sim_ticker}", f"${current_market_price:,.2f}")
+                    except:
+                        current_market_price = 0
+                        st.warning("No se pudo obtener precio actual.")
+
+                if current_market_price > 0 and total_debt_usd > 0:
+                    st.markdown("#### 🛡️ Plan de Defensa Generado (Basado en datos reales)")
+                    
+                    # Usamos la lógica de la pestaña 1 pero con datos inyectados
+                    # Asumimos que todo el colateral se comporta como el activo seleccionado (Worst Case Scenario / Simplificación)
+                    sim_collat_amt = total_collateral_usd / current_market_price
+                    sim_liq_price = total_debt_usd / (sim_collat_amt * current_liq_threshold)
+                    
+                    # Parametros de usuario para la simulación
+                    sim_threshold = 0.15 # 15% por defecto
+                    sim_target_ratio = sim_liq_price / current_market_price
+                    
+                    sim_cascade = []
+                    sim_curr_collat = sim_collat_amt
+                    sim_curr_liq = sim_liq_price
+                    sim_cum_cost = 0.0
+                    
+                    for i in range(1, 6): # 5 zonas
+                        trig = sim_curr_liq * (1 + sim_threshold)
+                        targ = trig * sim_target_ratio
+                        
+                        need_c = total_debt_usd / (targ * current_liq_threshold)
+                        add_c = need_c - sim_curr_collat
+                        cost = add_c * trig
+                        
+                        sim_cum_cost += cost
+                        sim_curr_collat += add_c
+                        
+                        sim_cascade.append({
+                            "Zona": f"Defensa #{i}",
+                            "Precio Activación": trig,
+                            "Colateral a Añadir": add_c,
+                            "Costo ($)": cost,
+                            "Total Acumulado ($)": sim_cum_cost,
+                            "Nuevo P. Liq": targ
+                        })
+                        sim_curr_liq = targ
+                        
+                    df_sim = pd.DataFrame(sim_cascade)
+                    st.dataframe(df_sim.style.format({
+                        "Precio Activación": "${:,.2f}", "Colateral a Añadir": "{:.4f}",
+                        "Costo ($)": "${:,.0f}", "Total Acumulado ($)": "${:,.0f}",
+                        "Nuevo P. Liq": "${:,.2f}"
+                    }), use_container_width=True)
+                    
+                elif total_debt_usd == 0:
+                    st.success("Esta billetera no tiene deuda activa. No hay riesgo de liquidación.")
+
+            except Exception as e:
+                st.error(f"Error leyendo On-Chain: {e}")
