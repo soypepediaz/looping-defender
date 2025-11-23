@@ -11,76 +11,63 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
-# --- CONFIGURACIÓN MULTI-CADENA HÍBRIDA (PRIVADA + PÚBLICA) ---
-
-# Función corregida: Solo pide la clave del secreto y la lista pública
-def get_rpcs_for_network(secret_key, public_rpcs):
-    rpcs = []
-    # 1. Intentar cargar URL privada desde st.secrets
-    try:
-        # Verificamos si existe la clave en los secretos
-        if secret_key in st.secrets:
-            # Añadimos el nodo privado AL PRINCIPIO de la lista
-            rpcs.append(st.secrets[secret_key])
-    except FileNotFoundError:
-        pass # Estamos en local sin secrets.toml o sin configurar
-    except Exception:
-        pass # Cualquier otro error con secrets, ignoramos
-    
-    # 2. Añadir los públicos como respaldo (Failover)
-    rpcs.extend(public_rpcs)
-    return rpcs
-
-# Definimos las redes usando la función corregida
+# --- CONFIGURACIÓN DE REDES (RPCs de Alto Rendimiento - DRPC/Blast) ---
+# DRPC y BlastAPI suelen ser los únicos que aguantan el tráfico de Streamlit Cloud gratis.
 NETWORKS = {
     "Base": {
-        "rpcs": get_rpcs_for_network("BASE_RPC_URL", [
+        "rpcs": [
+            "https://base.drpc.org",           # El más robusto gratuito
+            "https://base-mainnet.public.blastapi.io",
             "https://mainnet.base.org",
-            "https://base.llamarpc.com",
-            "https://base-rpc.publicnode.com",
             "https://1rpc.io/base"
-        ]),
-        "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f"
+        ],
+        "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f",
+        "needs_middleware": False # Base NO necesita middleware PoA
     },
     "Arbitrum": {
-        "rpcs": get_rpcs_for_network("ARBITRUM_RPC_URL", [
+        "rpcs": [
+            "https://arbitrum.drpc.org",
             "https://arb1.arbitrum.io/rpc",
-            "https://arbitrum.llamarpc.com",
             "https://rpc.ankr.com/arbitrum"
-        ]),
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        ],
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+        "needs_middleware": False
     },
     "Ethereum Mainnet": {
-        "rpcs": get_rpcs_for_network("ETH_RPC_URL", [
+        "rpcs": [
+            "https://eth.drpc.org",
             "https://eth.llamarpc.com",
-            "https://rpc.ankr.com/eth",
-            "https://ethereum-rpc.publicnode.com"
-        ]), 
-        "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+            "https://rpc.ankr.com/eth"
+        ], 
+        "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+        "needs_middleware": False
     },
     "Optimism": {
-        "rpcs": get_rpcs_for_network("OP_RPC_URL", [
+        "rpcs": [
+            "https://optimism.drpc.org",
             "https://mainnet.optimism.io",
-            "https://optimism.llamarpc.com",
             "https://rpc.ankr.com/optimism"
-        ]),
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        ],
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+        "needs_middleware": False
     },
     "Polygon (Matic)": {
-        "rpcs": get_rpcs_for_network("MATIC_RPC_URL", [
+        "rpcs": [
+            "https://polygon.drpc.org",
             "https://polygon-rpc.com",
-            "https://polygon.llamarpc.com",
             "https://rpc.ankr.com/polygon"
-        ]),
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        ],
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+        "needs_middleware": True # Polygon SÍ suele necesitarlo
     },
     "Avalanche": {
-        "rpcs": get_rpcs_for_network("AVAX_RPC_URL", [
+        "rpcs": [
+            "https://avalanche.drpc.org",
             "https://api.avax.network/ext/bc/C/rpc",
-            "https://avalanche.llamarpc.com",
             "https://rpc.ankr.com/avalanche"
-        ]),
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        ],
+        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD",
+        "needs_middleware": True
     }
 }
 
@@ -116,23 +103,33 @@ ASSET_MAP = {
     "✍️ Otro (Escribir manual)": "MANUAL"
 }
 
-# --- FUNCIÓN DE CONEXIÓN WEB3 CON FAILOVER ---
-def get_web3_connection(network_name):
-    """Intenta conectar rotando por la lista de RPCs disponibles"""
-    rpcs = NETWORKS[network_name]["rpcs"]
+# --- FUNCIÓN DE CONEXIÓN INTELIGENTE ---
+def connect_to_network(network_name):
+    config = NETWORKS[network_name]
+    rpcs = config["rpcs"]
+    
+    # Intentar cargar secreto si existe (Prioridad 1)
+    secret_key = f"{network_name.upper()}_RPC_URL"
+    if secret_key in st.secrets:
+        rpcs.insert(0, st.secrets[secret_key])
+
+    last_error = None
     
     for rpc in rpcs:
         try:
-            w3 = Web3(Web3.HTTPProvider(rpc))
-            # Inyectar middleware (necesario para L2s como Base/Polygon/Optimism)
-            w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+            w3 = Web3(Web3.HTTPProvider(rpc, request_kwargs={'timeout': 10})) # Timeout corto para saltar rápido
             
             if w3.is_connected():
-                return w3, rpc # Retorna la conexión y la URL que funcionó
-        except Exception:
-            continue # Si falla, prueba el siguiente calladamente
+                # Solo inyectamos middleware si la red lo marca explícitamente
+                if config["needs_middleware"]:
+                    w3.middleware_onion.inject(ExtraDataToPOAMiddleware, layer=0)
+                
+                return w3, rpc
+        except Exception as e:
+            last_error = e
+            continue
             
-    return None, None # Si todos fallan
+    return None, last_error
 
 # TABS
 tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner On-Chain"])
@@ -362,37 +359,34 @@ with tab_onchain:
         if not user_address:
             st.warning("Por favor, introduce una dirección.")
         else:
+            # 1. CONEXIÓN
+            with st.spinner(f"Conectando a {selected_network}..."):
+                w3, active_rpc = connect_to_network(selected_network)
+            
+            if not w3:
+                st.error(f"❌ No se pudo conectar a {selected_network}. Todos los nodos públicos están fallando.")
+                st.info("Tip: Si tienes una clave de Alchemy/Infura, configurala en los Secrets de Streamlit.")
+                st.stop()
+            
             try:
-                # 1. INTENTO DE CONEXIÓN CON ROTACIÓN
-                with st.spinner(f"Buscando nodo disponible en {selected_network}..."):
-                    w3, active_rpc = get_web3_connection(selected_network)
-                
-                if not w3:
-                    st.error(f"❌ No se pudo conectar con {selected_network}. Todos los nodos públicos están saturados.")
-                    st.stop()
-                
                 # Validar direcciones
-                try:
-                    valid_address = w3.to_checksum_address(user_address)
-                    valid_pool = w3.to_checksum_address(pool_address)
-                except:
-                    st.error("Dirección inválida.")
-                    st.stop()
+                valid_address = w3.to_checksum_address(user_address)
+                valid_pool = w3.to_checksum_address(pool_address)
 
                 # 2. Llamada al contrato
                 aave_contract = w3.eth.contract(address=valid_pool, abi=AAVE_ABI)
                 
-                with st.spinner(f"Leyendo contrato Aave en {active_rpc}..."):
+                with st.spinner(f"Leyendo contrato Aave vía {active_rpc[:25]}..."):
                     user_data = aave_contract.functions.getUserAccountData(valid_address).call()
                 
-                # 3. Procesar Datos (Aave V3 devuelve 8 decimales en modo base USD)
+                # 3. Procesar Datos
                 total_collateral_usd = user_data[0] / 10**8
                 total_debt_usd = user_data[1] / 10**8
                 current_liq_threshold = user_data[3] / 10000 
                 health_factor = user_data[5] / 10**18
                 
                 # --- MOSTRAR RESULTADOS ---
-                st.success(f"✅ Conectado exitosamente vía {active_rpc}")
+                st.success(f"✅ Conectado exitosamente")
                 
                 met1, met2, met3, met4 = st.columns(4)
                 met1.metric("Health Factor", f"{health_factor:.2f}", 
@@ -490,4 +484,3 @@ with tab_onchain:
 
             except Exception as e:
                 st.error(f"Error conectando: {e}")
-                st.info("Es posible que los nodos estén bloqueando la IP del servidor.")
