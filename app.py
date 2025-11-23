@@ -66,7 +66,7 @@ ASSET_MAP = {
     "Polygon (MATIC)": "MATIC-USD",
     "Solana (SOL)": "SOL-USD",
     "Avalanche (AVAX)": "AVAX-USD",
-    "Base (ETH)": "ETH-USD", # En Base se usa mucho WETH
+    "Base (ETH)": "ETH-USD", 
     "Link (LINK)": "LINK-USD",
     "✍️ Otro (Escribir manual)": "MANUAL"
 }
@@ -369,13 +369,15 @@ with tab_onchain:
                 if current_market_price > 0 and total_debt_usd > 0:
                     
                     # 1. Calcular Precio de Liquidación Actual (Estimado)
-                    # Asumiendo que todo el colateral es del activo seleccionado (Stress Test)
                     sim_collat_amt = total_collateral_usd / current_market_price
                     sim_liq_price = total_debt_usd / (sim_collat_amt * current_liq_threshold)
                     
-                    # Mostrar Precio de Liquidación Actual
+                    # --- CAMBIO APLICADO AQUÍ ---
+                    # Calculamos el porcentaje de colchón en lugar del valor absoluto
+                    cushion_pct = (current_market_price - sim_liq_price) / current_market_price
+                    
                     st.metric("Precio Liquidación Actual (Est.)", f"${sim_liq_price:,.2f}", 
-                              delta=f"{(current_market_price - sim_liq_price):,.2f}$ de margen", delta_color="normal")
+                              delta=f"{cushion_pct:.2%} Colchón de Liquidación", delta_color="normal")
                     
                     st.markdown("#### 🛡️ Plan de Defensa Generado")
                     
@@ -386,18 +388,16 @@ with tab_onchain:
                     sim_curr_liq = sim_liq_price
                     sim_cum_cost = 0.0
                     
-                    # Usamos el sim_threshold_input que el usuario acaba de definir
                     for i in range(1, 6): 
                         trig = sim_curr_liq * (1 + sim_threshold_input)
                         targ = trig * sim_target_ratio
                         
                         need_c = total_debt_usd / (targ * current_liq_threshold)
-                        add_c = need_c - sim_curr_collat # Cantidad de tokens
+                        add_c = need_c - sim_curr_collat 
                         
-                        # Si ya tenemos suficiente colateral para ese nivel (raro en cascada, pero posible), es 0
                         if add_c < 0: add_c = 0
                             
-                        cost = add_c * trig # Costo en USD al precio del trigger
+                        cost = add_c * trig 
                         
                         sim_cum_cost += cost
                         sim_curr_collat += add_c
