@@ -17,55 +17,36 @@ st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 #  1. CONFIGURACIÓN DE REDES Y CONTRATOS
 # ==============================================================================
 
-# Usamos 'pool_provider' (AddressProvider) para encontrar siempre la dirección correcta del Pool
-# Esto evita errores si Aave actualiza sus contratos.
+# Diccionario de Redes: RPCs robustos y Dirección del AddressProvider
 NETWORKS = {
     "Base": {
         "chain_id": 8453,
-        "rpcs": [
-            "https://base.drpc.org",
-            "https://mainnet.base.org",
-            "https://base-rpc.publicnode.com"
-        ],
+        "rpcs": ["https://base.drpc.org", "https://mainnet.base.org"],
         "pool_provider": "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"
     },
     "Arbitrum": {
         "chain_id": 42161,
-        "rpcs": [
-            "https://arb1.arbitrum.io/rpc",
-            "https://rpc.ankr.com/arbitrum"
-        ],
+        "rpcs": ["https://arb1.arbitrum.io/rpc", "https://rpc.ankr.com/arbitrum"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Ethereum": {
         "chain_id": 1,
-        "rpcs": [
-            "https://eth.llamarpc.com",
-            "https://rpc.ankr.com/eth"
-        ], 
+        "rpcs": ["https://eth.llamarpc.com", "https://rpc.ankr.com/eth"], 
         "pool_provider": "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"
     },
     "Optimism": {
         "chain_id": 10,
-        "rpcs": [
-            "https://mainnet.optimism.io",
-            "https://rpc.ankr.com/optimism"
-        ],
+        "rpcs": ["https://mainnet.optimism.io", "https://rpc.ankr.com/optimism"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Polygon": {
         "chain_id": 137,
-        "rpcs": [
-            "https://polygon-rpc.com",
-            "https://rpc.ankr.com/polygon"
-        ],
+        "rpcs": ["https://polygon-rpc.com", "https://rpc.ankr.com/polygon"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Avalanche": {
         "chain_id": 43114,
-        "rpcs": [
-            "https://api.avax.network/ext/bc/C/rpc"
-        ],
+        "rpcs": ["https://api.avax.network/ext/bc/C/rpc"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     }
 }
@@ -80,7 +61,7 @@ AAVE_ABI = [
         "stateMutability": "view",
         "type": "function"
     },
-    # Función ligera getUserAccountData (Devuelve totales en USD base)
+    # Función ligera getUserAccountData
     {
         "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
         "name": "getUserAccountData",
@@ -113,23 +94,23 @@ ASSET_MAP = {
 # ==============================================================================
 
 def get_web3_session(rpc_url):
-    """Crea una sesión Web3 disfrazada de navegador Chrome para evitar bloqueos"""
+    """Crea una sesión Web3 disfrazada de navegador Chrome"""
     s = requests.Session()
     s.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
-    # Timeout de 60s es suficiente para llamadas ligeras
+    # Timeout amplio para evitar cortes
     return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60}))
 
 def connect_robust(network_name):
     """Intenta conectar rotando RPCs y priorizando Secrets"""
     config = NETWORKS[network_name]
-    rpcs = config["rpcs"][:] # Copia de la lista para no modificar la original
+    rpcs = config["rpcs"][:] # Copia de la lista
     
     secret_key = f"{network_name.upper()}_RPC_URL"
     used_private = False
     
-    # Inyectar secreto (Alchemy/Infura) si existe en los Secrets de Streamlit
+    # Inyectar secreto (Alchemy/Infura) si existe
     if secret_key in st.secrets:
         private_rpc = st.secrets[secret_key].strip().replace('"', '').replace("'", "")
         rpcs.insert(0, private_rpc)
@@ -256,7 +237,6 @@ with tab_calc:
         "Ratio": "{:.2f}"
     }), use_container_width=True)
     
-    # Informe Ejecutivo
     if not df_calc.empty:
         st.divider()
         last_row = df_calc.iloc[-1]
@@ -378,7 +358,7 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 3: ESCÁNER REAL (MODO ROBUSTO + DUAL CON MEMORIA)
+#  PESTAÑA 3: ESCÁNER REAL (MODO DUAL CON MEMORIA)
 # ------------------------------------------------------------------------------
 with tab_onchain:
     st.markdown("### 📡 Escáner Aave V3 (Modo Seguro)")
@@ -475,6 +455,7 @@ with tab_onchain:
                         targ = trig * ratio_target
                         
                         # Cantidad necesaria para bajar liquidación al target
+                        # Debt / (New_Amt * LT) = Targ -> New_Amt = Debt / (Targ * LT)
                         needed_amt = d['debt_usd'] / (targ * d['lt_avg'])
                         add_amt = max(0, needed_amt - s_curr_c)
                         
@@ -483,6 +464,7 @@ with tab_onchain:
                         s_curr_c += add_amt
                         
                         # Nuevo HF al inyectar
+                        # HF = (Col * LT) / Debt
                         new_col_usd = s_curr_c * trig
                         new_hf = (new_col_usd * d['lt_avg']) / d['debt_usd']
                         
@@ -506,9 +488,21 @@ with tab_onchain:
                 except Exception as ex:
                     st.error(f"Error precio: {ex}")
 
-            # MODO B: MULTI-COLATERAL (Porcentajes)
+            # MODO B: MULTI-COLATERAL (SIMULACIÓN PORCENTUAL CON INDICE)
             else:
                 st.info("Cálculo basado en caída porcentual global.")
+                
+                # Añadimos selector de "Activo Testigo" para darle contexto visual
+                st.markdown("##### 📉 Referencia Visual (Activo Testigo)")
+                col_ref, col_dummy = st.columns(2)
+                with col_ref:
+                    ref_asset = st.selectbox("Elige un activo para visualizar los precios de referencia:", list(ASSET_MAP.keys()), key="ref_asset")
+                    ref_ticker = ASSET_MAP[ref_asset] if ASSET_MAP[ref_asset] != "MANUAL" else "ETH-USD"
+                
+                try:
+                    ref_price = yf.Ticker(ref_ticker).history(period="1d")['Close'].iloc[-1]
+                except: ref_price = 0
+
                 if (d['col_usd'] * d['lt_avg']) > 0:
                     max_drop = 1 - (d['debt_usd'] / (d['col_usd'] * d['lt_avg']))
                 else:
@@ -520,25 +514,47 @@ with tab_onchain:
                 sim = []
                 start = int(max_drop * 100)
                 
+                # Simulamos caídas desde el punto de liquidación en adelante
                 for d_step in range(start+2, start+52, 5):
                     drop = d_step/100.0
+                    
+                    # Estado tras el crash (sin defensa)
                     shock_col = d['col_usd'] * (1 - drop)
                     shock_hf = (shock_col * d['lt_avg']) / d['debt_usd']
                     
-                    # Capital necesario (repagar deuda)
+                    # Cálculo de capital necesario (repagar deuda para subir HF)
+                    # Target_HF = (Shock_Col * LT) / (Debt - Capital)
+                    # Debt - Capital = (Shock_Col * LT) / Target_HF
+                    # Capital = Debt - ((Shock_Col * LT) / Target_HF)
+                    
                     need = d['debt_usd'] - ((shock_col * d['lt_avg']) / target_hf)
                     if need < 0: need = 0
                     
-                    final_hf = (shock_col * d['lt_avg']) / (d['debt_usd'] - need) if (d['debt_usd']-need)>0 else 999
+                    # Nuevo HF real
+                    new_debt = d['debt_usd'] - need
+                    if new_debt > 0:
+                        final_hf = (shock_col * d['lt_avg']) / new_debt
+                    else:
+                        final_hf = 999.0 # Deuda pagada
+                    
+                    # Precio Testigo
+                    ref_price_shock = ref_price * (1 - drop)
                     
                     sim.append({
                         "Caída Mercado": f"-{d_step}%", 
-                        "HF Riesgo": f"{shock_hf:.2f}", 
+                        f"Precio {ref_ticker}": ref_price_shock,
+                        "HF (Riesgo)": f"{shock_hf:.2f}", 
                         "Inyectar (USDC)": need, 
                         "Nuevo HF": f"{final_hf:.2f}"
                     })
                     
-                st.dataframe(pd.DataFrame(sim).style.format({"Inyectar (USDC)": "${:,.2f}"}).background_gradient(subset=["Inyectar (USDC)"], cmap="Reds"), use_container_width=True)
-                
+                st.dataframe(
+                    pd.DataFrame(sim).style.format({
+                        "Inyectar (USDC)": "${:,.2f}",
+                        f"Precio {ref_ticker}": "${:,.2f}"
+                    })
+                    .background_gradient(subset=["Inyectar (USDC)"], cmap="Reds"), 
+                    use_container_width=True
+                )
         else:
             st.success("Sin deuda activa.")
