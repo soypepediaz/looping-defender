@@ -11,46 +11,52 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
-# --- CONFIGURACIÓN DE REDES ---
+# --- CONFIGURACIÓN DE REDES (ADDRESS PROVIDERS) ---
+# En lugar de apuntar al Pool, apuntamos al "AddressesProvider" que es inmutable.
 NETWORKS = {
     "Base": {
         "chain_id": 8453,
-        "rpcs": [
-            "https://mainnet.base.org",
-            "https://base.drpc.org",
-            "https://base-rpc.publicnode.com"
-        ],
-        "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f"
+        "rpcs": ["https://mainnet.base.org", "https://base.drpc.org"],
+        "provider_address": "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"
     },
     "Arbitrum": {
         "chain_id": 42161,
         "rpcs": ["https://arb1.arbitrum.io/rpc", "https://rpc.ankr.com/arbitrum"],
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        "provider_address": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Ethereum": {
         "chain_id": 1,
         "rpcs": ["https://eth.llamarpc.com", "https://rpc.ankr.com/eth"], 
-        "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+        "provider_address": "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"
     },
     "Optimism": {
         "chain_id": 10,
         "rpcs": ["https://mainnet.optimism.io", "https://rpc.ankr.com/optimism"],
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        "provider_address": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Polygon": {
         "chain_id": 137,
         "rpcs": ["https://polygon-rpc.com", "https://rpc.ankr.com/polygon"],
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        "provider_address": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Avalanche": {
         "chain_id": 43114,
         "rpcs": ["https://api.avax.network/ext/bc/C/rpc"],
-        "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
+        "provider_address": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     }
 }
 
-# ABI Mínimo
+# ABI COMBINADO (Provider + Pool)
 AAVE_ABI = [
+    # Función para preguntar al Provider dónde está el Pool
+    {
+        "inputs": [],
+        "name": "getPool",
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    # Función para preguntar al Pool los datos del usuario
     {
         "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
         "name": "getUserAccountData",
@@ -75,7 +81,7 @@ ASSET_MAP = {
     "Link (LINK)": "LINK-USD", "✍️ Otro (Escribir manual)": "MANUAL"
 }
 
-# --- FUNCIÓN DE CONEXIÓN ROBUSTA (USER-AGENT) ---
+# --- FUNCIÓN DE CONEXIÓN ROBUSTA ---
 def get_web3_session(rpc_url):
     session = requests.Session()
     session.headers.update({
@@ -109,7 +115,7 @@ def connect_robust(network_name):
 tab_calc, tab_backtest, tab_onchain = st.tabs(["🧮 Calculadora", "📉 Backtest", "📡 Escáner On-Chain"])
 
 # ==============================================================================
-#  PESTAÑA 1: CALCULADORA (Código completo restaurado)
+#  PESTAÑA 1: CALCULADORA (Restaurada)
 # ==============================================================================
 with tab_calc:
     st.markdown("### Simulador Estático de Defensa")
@@ -202,7 +208,7 @@ with tab_calc:
 
 
 # ==============================================================================
-#  PESTAÑA 2: MOTOR DE BACKTESTING (Código completo restaurado)
+#  PESTAÑA 2: MOTOR DE BACKTESTING (Restaurado)
 # ==============================================================================
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica")
@@ -313,10 +319,11 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ==============================================================================
-#  PESTAÑA 3: ON-CHAIN SCANNER (CORREGIDA)
+#  PESTAÑA 3: ON-CHAIN SCANNER (MODO ADDRESS PROVIDER)
 # ==============================================================================
 with tab_onchain:
-    st.markdown("### 📡 Escáner Aave V3 (Anti-Bloqueo)")
+    st.markdown("### 📡 Escáner Aave V3 (Oficial - Provider Mode)")
+    st.caption("Conecta directamente al registro oficial de Aave para encontrar tu posición.")
     
     col_net1, col_net2 = st.columns([1, 3])
     with col_net1:
@@ -328,31 +335,40 @@ with tab_onchain:
         if not user_address:
             st.warning("Falta dirección.")
         else:
-            with st.spinner(f"Conectando a {selected_network} (Modo Navegador)..."):
+            with st.spinner(f"Conectando a {selected_network}..."):
                 w3, rpc_used = connect_robust(selected_network)
             
             if not w3:
                 st.error(f"❌ Fallo total de conexión. Revisa si el RPC de {selected_network} está caído.")
                 st.stop()
             
-            # Debug Info
-            st.caption(f"✅ Conectado a Chain ID: {w3.eth.chain_id} | Vía: {rpc_used}")
-
             try:
-                # CORRECCIÓN DE CHECKSUM
+                # 1. Preparar dirección de Usuario
                 valid_addr = w3.to_checksum_address(user_address)
                 
-                # Aquí está el truco: Forzamos el formato de la dirección del Pool
-                raw_pool_addr = NETWORKS[selected_network]["pool_address"]
-                pool_addr = w3.to_checksum_address(raw_pool_addr) # <--- LA SOLUCIÓN
+                # 2. Conectar al PROVIDER (El Jefe)
+                provider_addr_raw = NETWORKS[selected_network]["provider_address"]
+                provider_addr = w3.to_checksum_address(provider_addr_raw)
+                provider_contract = w3.eth.contract(address=provider_addr, abi=AAVE_ABI)
                 
-                contract = w3.eth.contract(address=pool_addr, abi=AAVE_ABI)
-                data = contract.functions.getUserAccountData(valid_addr).call()
+                with st.spinner("Preguntando al Provider dónde está el Pool..."):
+                    # 3. Preguntar al Jefe: "¿Dónde está el Pool?"
+                    actual_pool_address = provider_contract.functions.getPool().call()
                 
+                # 4. Conectar al POOL real
+                pool_contract = w3.eth.contract(address=actual_pool_address, abi=AAVE_ABI)
+                
+                with st.spinner(f"Leyendo datos del Pool en {actual_pool_address[:10]}..."):
+                    # 5. Obtener datos del usuario
+                    data = pool_contract.functions.getUserAccountData(valid_addr).call()
+                
+                # Procesar
                 col_usd = data[0] / 10**8
                 debt_usd = data[1] / 10**8
                 current_liq_threshold = data[3] / 10000 
                 hf = data[5] / 10**18
+                
+                st.success(f"✅ Conectado a Chain ID: {w3.eth.chain_id} | RPC: {rpc_used[:30]}...")
                 
                 m1, m2, m3, m4 = st.columns(4)
                 m1.metric("HF", f"{hf:.2f}", delta="OK" if hf>1.1 else "Risk", delta_color="normal" if hf>1.1 else "inverse")
@@ -360,6 +376,7 @@ with tab_onchain:
                 m3.metric("Deuda", f"${debt_usd:,.2f}")
                 m4.metric("LT (Avg)", f"{current_liq_threshold:.2%}")
                 
+                # --- SIMULACIÓN DE DEFENSA ---
                 st.divider()
                 st.subheader("🛠️ Simular Estrategia de Defensa")
                 
@@ -409,4 +426,4 @@ with tab_onchain:
                     st.success("Sin deuda activa.")
 
             except Exception as e:
-                st.error(f"Error de lectura: {e}")
+                st.error(f"Error técnico: {e}")
