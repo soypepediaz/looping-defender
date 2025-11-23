@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import yfinance as yf
 from datetime import date, timedelta
 from web3 import Web3
+from web3.middleware import geth_poa_middleware # <--- IMPORTANTE
 
 # --- Configuración de la Página ---
 st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
@@ -11,36 +12,35 @@ st.set_page_config(page_title="Looping Master - MultiChain", layout="wide")
 st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
 
 # --- CONFIGURACIÓN MULTI-CADENA (AAVE V3) ---
-# RPCs actualizados a proveedores de alta disponibilidad (PublicNode / Llama / 1RPC)
+# Usamos Ankr Protocol por estabilidad + Middleware PoA
 NETWORKS = {
     "Arbitrum": {
-        "rpc": "https://arbitrum-one-rpc.publicnode.com",
+        "rpc": "https://rpc.ankr.com/arbitrum",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Ethereum Mainnet": {
-        "rpc": "https://ethereum-rpc.publicnode.com", 
+        "rpc": "https://rpc.ankr.com/eth", 
         "pool_address": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
     },
     "Optimism": {
-        "rpc": "https://optimism-rpc.publicnode.com",
+        "rpc": "https://rpc.ankr.com/optimism",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Polygon (Matic)": {
-        "rpc": "https://polygon-bor-rpc.publicnode.com",
+        "rpc": "https://rpc.ankr.com/polygon",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     },
     "Base": {
-        # ESTE ES EL CAMBIO CLAVE: PublicNode suele ser mucho más estable para Base
-        "rpc": "https://base-rpc.publicnode.com", 
+        "rpc": "https://rpc.ankr.com/base", 
         "pool_address": "0xA238Dd80C259a72e81d7e4664a98015D33062B7f"
     },
     "Avalanche": {
-        "rpc": "https://avalanche-c-chain-rpc.publicnode.com",
+        "rpc": "https://rpc.ankr.com/avalanche",
         "pool_address": "0x794a61358D6845594F94dc1DB02A252b5b4814aD"
     }
 }
 
-# ABI Mínimo para leer getUserAccountData
+# ABI Mínimo
 AAVE_ABI = [
     {
         "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
@@ -304,6 +304,10 @@ with tab_onchain:
             try:
                 # 1. Conexión Web3 dinámica
                 w3 = Web3(Web3.HTTPProvider(rpc_url))
+                
+                # --- CORRECCIÓN CRÍTICA: MIDDLEWARE PARA L2s (Base, Matic, Optimism) ---
+                w3.middleware_onion.inject(geth_poa_middleware, layer=0)
+                
                 if not w3.is_connected():
                     st.error(f"No se pudo conectar al nodo de {selected_network}. La red puede estar congestionada.")
                     st.stop()
@@ -373,8 +377,7 @@ with tab_onchain:
                     sim_collat_amt = total_collateral_usd / current_market_price
                     sim_liq_price = total_debt_usd / (sim_collat_amt * current_liq_threshold)
                     
-                    # --- CAMBIO APLICADO AQUÍ ---
-                    # Calculamos el porcentaje de colchón en lugar del valor absoluto
+                    # --- CAMBIO APLICADO: Mostrar Colchón en % ---
                     cushion_pct = (current_market_price - sim_liq_price) / current_market_price
                     
                     st.metric("Precio Liquidación Actual (Est.)", f"${sim_liq_price:,.2f}", 
@@ -428,5 +431,3 @@ with tab_onchain:
             except Exception as e:
                 st.error(f"Error conectando a {selected_network}: {e}")
                 st.info("Inténtalo de nuevo. Los nodos públicos a veces se saturan.")
-
-
