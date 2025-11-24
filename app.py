@@ -11,7 +11,7 @@ from wallet_connect import wallet_connect
 #  CONFIGURACIÓN DE LA PÁGINA Y ESTILOS
 # ==============================================================================
 st.set_page_config(
-    page_title="Looping Master - Campamento DeFi",
+    page_title="Looping Master - Final",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -31,7 +31,7 @@ st.markdown(hide_st_style, unsafe_allow_html=True)
 #  0. CONFIGURACIÓN DE MARKETING Y ACCESO (NFTs + MOOSEND)
 # ==============================================================================
 
-# 1. Configuración Moosend
+# --- 1. Configuración Moosend ---
 MOOSEND_LIST_ID = "75c61863-63dc-4fd3-9ed8-856aee90d04a"
 
 def add_subscriber_moosend(name, email):
@@ -72,7 +72,7 @@ def add_subscriber_moosend(name, email):
     except Exception as e:
         return False, str(e)
 
-# 2. Configuración NFT Gating (Arbitrum)
+# --- 2. Configuración NFT Gating (Arbitrum) ---
 ALLOWED_NFT_CONTRACTS = {
     "Membresía": "0xF4820467171695F4d2760614C77503147A9CB1E8",
     "Inconfiscable": "0x8d8731994A082626E2BcFd47F0623e685251e70D"
@@ -178,19 +178,20 @@ def get_web3_session(rpc_url):
     s.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
-    # Timeout extendido a 60s para evitar cortes en redes congestionadas
+    # Timeout extendido a 60s
     return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60}))
 
 def connect_robust(network_name):
     """Intenta conectar rotando RPCs y priorizando Secrets"""
     config = NETWORKS[network_name]
-    rpcs = config["rpcs"][:] # Hacemos copia para no modificar la original
+    rpcs = config["rpcs"][:] # Copia de la lista
     
     secret_key = f"{network_name.upper()}_RPC_URL"
     used_private = False
     
     # Inyectar secreto (Alchemy/Infura) si existe en los Secrets de Streamlit
     if secret_key in st.secrets:
+        # Limpieza agresiva de comillas o espacios
         private_rpc = st.secrets[secret_key].strip().replace('"', '').replace("'", "")
         rpcs.insert(0, private_rpc)
         used_private = True
@@ -207,17 +208,8 @@ def connect_robust(network_name):
             
     return None, None, False
 
-def process_user_data(w3, network, user_address):
-    """
-    Lógica ligera para obtener datos del usuario.
-    Ya no usamos UiPoolDataProvider para evitar timeouts en Base.
-    """
-    # Placeholder: Esta función se llama directamente dentro de la Pestaña 3 
-    # para tener acceso a las variables de sesión y evitar duplicidades.
-    pass 
-
 # ==============================================================================
-#  3. BARRA LATERAL Y CONTROL DE ACCESO
+#  3. CONTROL DE ACCESO (CON MODO MANUAL DE EMERGENCIA)
 # ==============================================================================
 
 with st.sidebar:
@@ -226,11 +218,16 @@ with st.sidebar:
     st.markdown("---")
     st.markdown("### 🔐 Acceso Socios")
     
-    # Botón de Wallet Connect
-    wallet_address = wallet_connect(label="wallet", key="login_btn")
+    # --- MODO MANUAL (FIX PARA CONFLICTOS OKX/RABBY) ---
+    use_manual = st.checkbox("🛠️ Introducir Wallet Manualmente", help="Activa esto si el botón de conectar falla por conflictos con extensiones.")
     
+    if use_manual:
+        wallet_address = st.text_input("Tu Address (0x...)", placeholder="0x...")
+    else:
+        # Botón de Wallet Connect
+        wallet_address = wallet_connect(label="wallet", key="login_btn")
+        
     st.markdown("---")
-    st.caption("Conecta tu wallet en Arbitrum para verificar tu NFT.")
 
 has_access = False
 
@@ -242,18 +239,18 @@ if wallet_address:
         
         if w3_arb:
             valid_contracts = []
+            target = w3_arb.to_checksum_address(wallet_address)
             
             # Revisamos cada contrato permitido
             for name, contract_addr in ALLOWED_NFT_CONTRACTS.items():
                 try:
                     nft_contract = w3_arb.eth.contract(address=w3_arb.to_checksum_address(contract_addr), abi=NFT_ABI)
-                    target = w3_arb.to_checksum_address(wallet_address)
                     
                     # INTENTO 1: Chequear 'activeBalanceOf' (Tiene en cuenta caducidad)
                     try:
                         balance = nft_contract.functions.activeBalanceOf(target).call()
                     except:
-                        # INTENTO 2: Fallback a 'balanceOf' estándar si el contrato es antiguo o diferente
+                        # INTENTO 2: Fallback a 'balanceOf' estándar
                         balance = nft_contract.functions.balanceOf(target).call()
                     
                     if balance >= REQUIRED_BALANCE:
@@ -272,10 +269,9 @@ if wallet_address:
         st.sidebar.warning(f"Error de verificación: {e}")
 
 # ==============================================================================
-#  4. ESTRUCTURA DE PESTAÑAS (PÚBLICO VS PRIVADO)
+#  4. INTERFAZ DE USUARIO - ESTRUCTURA DE PESTAÑAS
 # ==============================================================================
 
-# Definimos las pestañas primero
 tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
     "🏠 Inicio", 
     "🧮 Calculadora", 
@@ -546,7 +542,7 @@ with tab_backtest:
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
                 
-                ltv_liq = c_ltv # Heredado de Tab 1 para coherencia
+                ltv_liq = c_ltv # Usamos el LTV de la pestaña 1
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
                 target_ratio = liq_price / start_price 
                 
@@ -556,7 +552,6 @@ with tab_backtest:
                 
                 for date_idx, row in df_hist.iterrows():
                     if pd.isna(row['Close']): continue
-                    
                     low_val = float(row['Low'])
                     close_val = float(row['Close'])
                     open_val = float(row['Open'])
@@ -571,8 +566,7 @@ with tab_backtest:
                             is_liquidated = True
                             action = "LIQUIDATED ☠️"
                         else:
-                            # Defensa
-                            target_liq_new = defense_price * (liq_price / start_price)
+                            target_liq_new = defense_price * target_ratio
                             needed_collat_amt = debt_usd / (target_liq_new * ltv_liq)
                             add_collat_amt = needed_collat_amt - collateral_amt
                             
@@ -613,8 +607,7 @@ with tab_backtest:
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor Estrategia"], name='Estrategia', fill='tozeroy', line=dict(color='green')))
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Inversión Acumulada"], name='Inversión', line=dict(color='red', dash='dash')))
                 
-                # Marcadores de defensa
-                events = df_res[df_res["Acción"].str.contains("DEFENSA", na=False)]
+                events = df_res[df_res["Acción"].str.contains("DEFENSA")]
                 if not events.empty:
                     fig.add_trace(go.Scatter(x=events.index, y=events["Valor Estrategia"], mode='markers', name='Defensa', marker=dict(color='orange', size=10, symbol='diamond')))
                 
@@ -628,11 +621,10 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 3: ESCÁNER REAL (MODO ROBUSTO + DUAL + MEMORIA)
+#  PESTAÑA 3: ESCÁNER REAL (MODO ROBUSTO + MEMORIA)
 # ------------------------------------------------------------------------------
 with tab_onchain:
     st.markdown("### 📡 Escáner Aave V3 (Modo Seguro)")
-    st.caption("Conexión ligera verificada. Elige tu modo de análisis abajo.")
     
     col_net1, col_net2 = st.columns([1, 3])
     with col_net1:
@@ -640,7 +632,7 @@ with tab_onchain:
     with col_net2:
         addr = st.text_input("Wallet Address (0x...)", placeholder="0x...")
     
-    # --- GESTIÓN DE ESTADO (MEMORIA DE SESIÓN) ---
+    # --- GESTIÓN DE ESTADO (MEMORIA) ---
     if 'portfolio_data' not in st.session_state:
         st.session_state.portfolio_data = None
 
@@ -760,7 +752,7 @@ with tab_onchain:
                     st.error(f"Error precio: {ex}")
 
             # ==================================================================
-            # MODO B: MULTI-COLATERAL (LÓGICA PREVENTIVA DE SALUD)
+            # MODO B: MULTI-COLATERAL (LÓGICA PREVENTIVA)
             # ==================================================================
             else:
                 st.info("Planificación preventiva basada en caída de Salud (Health Factor).")
@@ -781,7 +773,6 @@ with tab_onchain:
                 if current_hf <= 1.0:
                     st.error("La posición ya está en rango de liquidación (HF < 1.0)")
                 else:
-                    # Step para bajar desde HF actual hasta 1.0
                     hf_gap = current_hf - 1.0
                     hf_step = hf_gap / num_defenses
                     
