@@ -15,7 +15,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS para limpiar la interfaz y mejorar el diseño de la portada
+# CSS para limpiar la interfaz y estilizar las tarjetas
 hide_st_style = """
             <style>
             #MainMenu {visibility: hidden;}
@@ -23,12 +23,12 @@ hide_st_style = """
             header {visibility: hidden;}
             .stDeployButton {display:none;}
             
-            /* Estilo para las tarjetas de metricas */
-            div[data-testid="stMetric"] {
-                background-color: #F0F2F6;
-                padding: 15px;
+            /* Estilo tarjetas */
+            div[data-testid="column"] {
+                background-color: #f9f9f9;
                 border-radius: 10px;
-                text-align: center;
+                padding: 20px;
+                margin-bottom: 10px;
             }
             </style>
             """
@@ -44,13 +44,10 @@ MOOSEND_LIST_ID = "75c61863-63dc-4fd3-9ed8-856aee90d04a"
 def add_subscriber_moosend(name, email):
     """Envía el suscriptor a la lista de Moosend vía API"""
     try:
-        # Verificar si existe la API Key en los secretos
         if "MOOSEND_API_KEY" not in st.secrets:
             return False, "Falta configuración de API Key en Secrets."
             
         api_key = st.secrets["MOOSEND_API_KEY"]
-        
-        # Endpoint de suscripción de Moosend
         url = f"https://api.moosend.com/v3/subscribers/{MOOSEND_LIST_ID}/subscribe.json?apikey={api_key}"
         
         headers = {
@@ -162,7 +159,7 @@ def get_web3_session(rpc_url):
     s.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
-    # Timeout extendido a 60s para evitar cortes en redes congestionadas
+    # Timeout extendido a 60s
     return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60}))
 
 def connect_robust(network_name):
@@ -173,9 +170,8 @@ def connect_robust(network_name):
     secret_key = f"{network_name.upper()}_RPC_URL"
     used_private = False
     
-    # Inyectar secreto (Alchemy/Infura) si existe en los Secrets de Streamlit
+    # Inyectar secreto (Alchemy/Infura) si existe en los Secrets
     if secret_key in st.secrets:
-        # Limpieza agresiva de comillas o espacios
         private_rpc = st.secrets[secret_key].strip().replace('"', '').replace("'", "")
         rpcs.insert(0, private_rpc)
         used_private = True
@@ -204,85 +200,92 @@ tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 0: PORTADA (DISEÑO CORREGIDO Y ORDENADO)
+#  PESTAÑA 0: PORTADA (DISEÑO FINAL MEZCLADO)
 # ------------------------------------------------------------------------------
 with tab_home:
-    # --- HERO SECTION (2 COLUMNAS) ---
-    col_hero_L, col_hero_R = st.columns([2, 1], gap="large")
+    # --- HERO SECTION LIMPIO (Títulos centrados o limpios) ---
+    st.markdown("# 🛡️ Domina el Looping en DeFi")
+    st.markdown("#### Maximiza tus rendimientos sin morir en el intento.")
+    st.markdown("Bienvenido a **Looping Master**, la herramienta definitiva para analizar, proyectar y defender tus posiciones apalancadas.")
     
-    with col_hero_L:
-        st.markdown("# 🛡️ Domina el Looping en DeFi")
-        st.markdown("#### Maximiza tus rendimientos sin morir en el intento.")
-        
-        st.markdown("""
-        Bienvenido a **Looping Master**, la herramienta definitiva para analizar, proyectar y 
-        defender tus posiciones apalancadas en Aave y otros protocolos.
-        """)
-        
-        # Lista de beneficios con iconos
-        st.markdown("""
-        * 🧮 **Calculadora:** Proyecta rentabilidades y puntos de liquidación exactos.
-        * 📉 **Backtest:** Valida tu estrategia con datos históricos reales (¿habrías sobrevivido a 2022?).
-        * 📡 **Escáner:** Audita tu cartera real en Blockchain y simula "Crash Tests" de mercado.
-        """)
-        
-        st.info("👆 **Empieza ahora:** Navega por las pestañas superiores para usar las herramientas.")
+    st.divider()
 
-    with col_hero_R:
-        # Caja de Branding / Status
-        with st.container(border=True):
-            st.markdown("### ⛺ Campamento DeFi")
-            st.caption("Tu comunidad de Estrategias On-Chain.")
-            st.metric("Nivel de Riesgo", "Gestionado", delta="Alto Rendimiento")
-            st.markdown("*Aprende a rentabilizar tus activos de forma segura.*")
+    # --- 3 COLUMNAS EXPLICATIVAS (RECUPERADO DEL DISEÑO QUE TE GUSTÓ) ---
+    col_f1, col_f2, col_f3 = st.columns(3)
+
+    with col_f1:
+        st.markdown("### 🧮 **Calculadora**")
+        st.markdown("Diseña tu estrategia **antes de invertir**.")
+        st.markdown("- Proyecta tu precio de liquidación.")
+        st.markdown("- Calcula tu ROI potencial.")
+        st.markdown("- Planifica tu defensa en cascada.")
+        st.info("👉 Ve a la pestaña **Calculadora**")
+
+    with col_f2:
+        st.markdown("### 📉 **Backtesting**")
+        st.markdown("Valida tu tesis con **datos históricos**.")
+        st.markdown("- ¿Habría sobrevivido tu estrategia en 2022?")
+        st.markdown("- Simula la volatilidad real.")
+        st.markdown("- Calcula el capital necesario.")
+        st.info("👉 Ve a la pestaña **Backtest**")
+
+    with col_f3:
+        st.markdown("### 📡 **Escáner Real**")
+        st.markdown("Conéctate a la **Blockchain en tiempo real**.")
+        st.markdown("- Audita tu posición en Base, Arbitrum, etc.")
+        st.markdown("- Detecta tu Salud (HF) real.")
+        st.markdown("- Simula un crash de mercado.")
+        st.info("👉 Ve a la pestaña **Escáner Real**")
 
     st.divider()
 
-    # --- LEAD MAGNET (FORMULARIO INTEGRADO) ---
+    # --- LEAD MAGNET (TU TEXTO PERSONALIZADO) ---
     st.markdown("### 🎓 Aprende a dominar estas estrategias")
     
-    col_lead_text, col_lead_form = st.columns([3, 2], gap="large")
+    col_lead_L, col_lead_R = st.columns([1.5, 1], gap="large")
     
-    with col_lead_text:
+    with col_lead_L:
         st.markdown("""
         Esta herramienta ha sido desarrollada por el equipo de **Campamento DeFi**.
         
-        El *Looping Avanzado* es solo una de las múltiples estrategias que enseñamos para rentabilizar tus activos onchain.
+        El Looping avanzado es solo una de las múltiples estrategias que enseñamos para rentabilizar tus activos onchain de forma segura.
         
-        **¿Quieres recibir la guía completa? (3 pasos):**
-        1.  📝 Rellena el formulario.
-        2.  📩 Revisa tu bandeja de entrada (mira en spam por si acaso).
-        3.  🚀 Recibe nuevas herramientas y estrategias cada semana.
+        **¿Quieres conocer más en detalle otras estrategias como esta? Pues es muy fácil (3 pasos):**
+        
+        **Paso 1.** 📘 Rellenas el formulario con tus datos.
+        
+        **Paso 2.** 🚨 Revisa tu bandeja de entrada. Algunos gestores de correo se equivocan y nos meten en la carpeta de spam.
+        
+        **Paso 3.** 🛠️ Te iremos informando de nuevas herramientas que vayamos desarrollando y cómo puedes sacarle el máximo partido entrando a la Membresía del Campamento.
         """)
     
-    with col_lead_form:
+    with col_lead_R:
         with st.container(border=True):
-            st.markdown("#### 📩 Recibir Guía Gratuita")
-            with st.form("lead_magnet_form_home"):
+            st.markdown("#### 📩 Paso 1, aquí")
+            with st.form("lead_magnet_form_final"):
                 name_input = st.text_input("Nombre", placeholder="Tu nombre")
                 email_input = st.text_input("Email", placeholder="tu@email.com")
                 
-                # Botón ancho completo
+                # Botón rojo llamativo (primary)
                 submitted = st.form_submit_button("¡Quiero aprender!", type="primary", use_container_width=True)
                 
                 if submitted:
                     if email_input and "@" in email_input:
-                        with st.spinner("Enviando a la base central..."):
-                            success, msg = add_subscriber_moosend(name_input, email_input)
+                        with st.spinner("Enviando solicitud..."):
+                            ok, msg = add_subscriber_moosend(name_input, email_input)
                             
-                        if success:
-                            st.success(f"¡Genial, {name_input}! Revisa tu correo.")
+                        if ok:
+                            st.success(f"¡Genial, {name_input}! Revisa tu correo ahora.")
                             st.balloons()
                         else:
-                            st.error(f"Hubo un error al suscribirte: {msg}")
+                            st.error(f"Hubo un error técnico: {msg}")
                     else:
                         st.warning("Por favor, introduce un email válido.")
 
-    st.divider()
-    st.caption("Desarrollado con ❤️ por el equipo de Campamento DeFi. DYOR (Do Your Own Research).")
+    st.caption("Desarrollado con ❤️ por el equipo de Campamento DeFi. DYOR.")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 1: CALCULADORA ESTÁTICA (CÓDIGO COMPLETO)
+#  PESTAÑA 1: CALCULADORA ESTÁTICA
 # ------------------------------------------------------------------------------
 with tab_calc:
     st.markdown("### 🧮 Simulador Estático de Defensa")
@@ -407,7 +410,7 @@ with tab_calc:
         """)
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 2: MOTOR DE BACKTESTING (CÓDIGO COMPLETO)
+#  PESTAÑA 2: MOTOR DE BACKTESTING
 # ------------------------------------------------------------------------------
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica")
@@ -604,6 +607,7 @@ with tab_onchain:
                     sim_asset = st.selectbox("¿Cuál es tu colateral principal?", list(ASSET_MAP.keys()), key="oc_asset")
                     ticker = ASSET_MAP[sim_asset] if ASSET_MAP[sim_asset] != "MANUAL" else st.text_input("Ticker", "ETH-USD", key="oc_tick")
                 with c_par:
+                    # Umbral mínimo bajado al 5%
                     def_th = st.number_input("Umbral Defensa (%)", 5.0, step=1.0, key="oc_th") / 100.0
                     zones = st.slider("Zonas", 1, 10, 5, key="oc_z")
                     
