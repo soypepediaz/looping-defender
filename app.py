@@ -207,17 +207,17 @@ with tab_home:
         st.markdown("""
         Esta herramienta ha sido desarrollada por el equipo de **Campamento DeFi**.
         
-        El Looping (Plegado) es solo una de las decenas de estrategias que enseñamos para rentabilizar tus criptomonedas de forma segura.
+        El Looping avanzado es solo una de las múltiples estrategias que enseñamos para rentabilizar tus activos onchain de forma segura.
         
-        **Suscríbete gratis a nuestra Newsletter y recibe:**
-        1.  📘 El **Manual de Supervivencia DeFi** (PDF).
-        2.  🚨 Alertas de mercado y nuevas oportunidades.
-        3.  🛠️ Acceso prioritario a nuevas herramientas.
+        **¿Quieres conocer más en detalle otras estrategias como esta? Pues es muy fácil (3 pasos):**
+        Paso 1.  📘 Rellenas el formulario con tus datos.
+        Paso 2.  🚨 Revisa tu bandeja de entrada. Algunos gestores de correo se equivocan y nos meten en la carpeta de spam.
+        Paso 3.  🛠️ Te iremos informando de nuevas herramientas que vayamos desarrollando y cómo puedes sacarle el máximo partido entrando a la Membresía del Campamento.
         """)
     
     with col_lead_R:
         with st.container(border=True):
-            st.markdown("#### 📩 Recibir Guía Gratuita")
+            st.markdown("#### 📩 Paso 1, aquí")
             with st.form("lead_form"):
                 name_input = st.text_input("Nombre", placeholder="Tu nombre")
                 email_input = st.text_input("Email", placeholder="tu@email.com")
@@ -668,3 +668,4 @@ with tab_onchain:
                     )
         else:
             st.success("Sin deuda activa.")
+
