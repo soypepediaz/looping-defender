@@ -5,7 +5,6 @@ import yfinance as yf
 from datetime import date, timedelta
 from web3 import Web3
 import requests
-from wallet_connect import wallet_connect
 
 # ==============================================================================
 #  CONFIGURACIÓN DE LA PÁGINA Y ESTILOS
@@ -28,10 +27,8 @@ hide_st_style = """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # ==============================================================================
-#  0. CONFIGURACIÓN DE MARKETING Y ACCESO (NFTs + MOOSEND)
+#  1. CONFIGURACIÓN MARKETING (MOOSEND)
 # ==============================================================================
-
-# --- 1. Configuración Moosend ---
 MOOSEND_LIST_ID = "75c61863-63dc-4fd3-9ed8-856aee90d04a"
 
 def add_subscriber_moosend(name, email):
@@ -72,31 +69,8 @@ def add_subscriber_moosend(name, email):
     except Exception as e:
         return False, str(e)
 
-# --- 2. Configuración NFT Gating (Arbitrum) ---
-ALLOWED_NFT_CONTRACTS = {
-    "Membresía": "0xF4820467171695F4d2760614C77503147A9CB1E8",
-    "Inconfiscable": "0x8d8731994A082626E2BcFd47F0623e685251e70D"
-}
-REQUIRED_BALANCE = 1 
-
-# ABI Híbrido para NFT (Soporta activeBalanceOf y balanceOf estándar)
-NFT_ABI = [
-    {
-        "inputs": [{"internalType": "address", "name": "owner", "type": "address"}], 
-        "name": "balanceOf", 
-        "outputs": [{"internalType": "uint256", "name": "", "type": "uint256"}], 
-        "stateMutability": "view", "type": "function"
-    },
-    {
-        "inputs": [{"internalType": "address", "name": "user", "type": "address"}], 
-        "name": "activeBalanceOf", 
-        "outputs": [{"internalType": "uint256", "name": "bal", "type": "uint256"}], 
-        "stateMutability": "view", "type": "function"
-    }
-]
-
 # ==============================================================================
-#  1. CONFIGURACIÓN DE REDES (AAVE V3)
+#  2. CONFIGURACIÓN DE REDES (AAVE V3)
 # ==============================================================================
 
 # Usamos 'pool_provider' (AddressProvider) para encontrar siempre la dirección correcta del Pool
@@ -169,7 +143,7 @@ ASSET_MAP = {
 }
 
 # ==============================================================================
-#  2. FUNCIONES AUXILIARES (WEB3)
+#  3. FUNCIONES AUXILIARES (WEB3)
 # ==============================================================================
 
 def get_web3_session(rpc_url):
@@ -178,7 +152,7 @@ def get_web3_session(rpc_url):
     s.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
-    # Timeout extendido a 60s
+    # Timeout extendido a 60s para evitar cortes en redes congestionadas
     return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60}))
 
 def connect_robust(network_name):
@@ -209,69 +183,10 @@ def connect_robust(network_name):
     return None, None, False
 
 # ==============================================================================
-#  3. CONTROL DE ACCESO (CON MODO MANUAL DE EMERGENCIA)
-# ==============================================================================
-
-with st.sidebar:
-    # Logo o imagen del Campamento (Placeholder)
-    st.image("https://placehold.co/200x80/PNG?text=Campamento+DeFi", use_container_width=True)
-    st.markdown("---")
-    st.markdown("### 🔐 Acceso Socios")
-    
-    # --- MODO MANUAL (FIX PARA CONFLICTOS OKX/RABBY) ---
-    use_manual = st.checkbox("🛠️ Introducir Wallet Manualmente", help="Activa esto si el botón de conectar falla por conflictos con extensiones.")
-    
-    if use_manual:
-        wallet_address = st.text_input("Tu Address (0x...)", placeholder="0x...")
-    else:
-        # Botón de Wallet Connect
-        wallet_address = wallet_connect(label="wallet", key="login_btn")
-        
-    st.markdown("---")
-
-has_access = False
-
-# Lógica de Verificación de NFT
-if wallet_address:
-    try:
-        # Conectamos a Arbitrum (donde viven tus contratos)
-        w3_arb, _, _ = connect_robust("Arbitrum")
-        
-        if w3_arb:
-            valid_contracts = []
-            target = w3_arb.to_checksum_address(wallet_address)
-            
-            # Revisamos cada contrato permitido
-            for name, contract_addr in ALLOWED_NFT_CONTRACTS.items():
-                try:
-                    nft_contract = w3_arb.eth.contract(address=w3_arb.to_checksum_address(contract_addr), abi=NFT_ABI)
-                    
-                    # INTENTO 1: Chequear 'activeBalanceOf' (Tiene en cuenta caducidad)
-                    try:
-                        balance = nft_contract.functions.activeBalanceOf(target).call()
-                    except:
-                        # INTENTO 2: Fallback a 'balanceOf' estándar
-                        balance = nft_contract.functions.balanceOf(target).call()
-                    
-                    if balance >= REQUIRED_BALANCE:
-                        valid_contracts.append(name)
-                except:
-                    continue # Si falla la lectura de un contrato, pasamos al siguiente
-            
-            if len(valid_contracts) > 0:
-                has_access = True
-                st.sidebar.success(f"✅ Acceso Verificado\n\n({', '.join(valid_contracts)})")
-            else:
-                st.sidebar.error("❌ Sin Acceso.")
-                st.sidebar.caption("No se detectó ningún NFT activo en esta wallet.")
-                
-    except Exception as e:
-        st.sidebar.warning(f"Error de verificación: {e}")
-
-# ==============================================================================
 #  4. INTERFAZ DE USUARIO - ESTRUCTURA DE PESTAÑAS
 # ==============================================================================
 
+# Definimos las 4 pestañas
 tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
     "🏠 Inicio", 
     "🧮 Calculadora", 
@@ -299,10 +214,7 @@ with tab_home:
         * 📡 **Escáner:** Audita tu cartera real en Blockchain y simula "Crash Tests".
         """)
         
-        if has_access:
-            st.success("✅ Tienes acceso completo. Navega por las pestañas superiores.")
-        else:
-            st.info("🔒 **Contenido Bloqueado:** Conecta tu wallet con el NFT del Campamento para acceder.")
+        st.info("💡 **Tip:** Navega por las pestañas superiores para usar las herramientas.")
 
     with col_hero_R:
         st.markdown("### ⛺ Campamento DeFi")
@@ -356,23 +268,6 @@ with tab_home:
 
     st.divider()
     st.caption("Desarrollado con ❤️ por el equipo de Campamento DeFi. DYOR.")
-
-# ------------------------------------------------------------------------------
-#  BLOQUEO DE SEGURIDAD (STOP)
-# ------------------------------------------------------------------------------
-if not has_access:
-    # Si no tiene acceso, mostramos mensajes de bloqueo en las otras pestañas y paramos
-    for tab in [tab_calc, tab_backtest, tab_onchain]:
-        with tab:
-            st.warning("🔒 **Contenido Bloqueado**")
-            st.markdown("Esta herramienta es exclusiva para miembros del Campamento DeFi.")
-            st.markdown("Por favor, conecta tu wallet en la barra lateral para verificar tu NFT.")
-    
-    st.stop() # DETIENE LA EJECUCIÓN DEL SCRIPT AQUÍ PARA NO SOCIOS
-
-# ==============================================================================
-#  A PARTIR DE AQUÍ: SOLO SOCIOS VERIFICADOS (CÓDIGO COMPLETO)
-# ==============================================================================
 
 # ------------------------------------------------------------------------------
 #  PESTAÑA 1: CALCULADORA ESTÁTICA
@@ -536,8 +431,6 @@ with tab_backtest:
 
                 start_date_actual = df_hist.index[0].date()
                 start_price = float(df_hist.iloc[0]['Close']) 
-                
-                # Variables iniciales
                 collateral_usd = bt_capital * bt_leverage
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
@@ -625,6 +518,7 @@ with tab_backtest:
 # ------------------------------------------------------------------------------
 with tab_onchain:
     st.markdown("### 📡 Escáner Aave V3 (Modo Seguro)")
+    st.caption("Conexión ligera verificada. Elige tu modo de análisis abajo.")
     
     col_net1, col_net2 = st.columns([1, 3])
     with col_net1:
@@ -779,25 +673,18 @@ with tab_onchain:
                     mc_data = []
                     
                     for i in range(1, num_defenses + 1):
-                        # 1. Trigger HF
                         trigger_hf = current_hf - (hf_step * i)
                         if trigger_hf <= 1.001: trigger_hf = 1.001
                         
-                        # 2. Caída necesaria para llegar ahí
                         drop_pct = 1 - (trigger_hf / current_hf)
-                        
-                        # 3. Capital para RESTAURAR al HF Original
                         shocked_col = d['col_usd'] * (1 - drop_pct)
                         shocked_lt_val = (d['col_usd'] * d['lt_avg']) * (1 - drop_pct)
                         
-                        # Inyeccion = Deuda - (Shocked_Val / Target_HF_Original)
                         needed_capital = d['debt_usd'] - (shocked_lt_val / current_hf)
                         if needed_capital < 0: needed_capital = 0
                         
-                        # Precio testigo
                         w_price_shock = w_price * (1 - drop_pct)
                         
-                        # Nuevo HF real tras inyección
                         final_debt = d['debt_usd'] - needed_capital
                         if final_debt > 0:
                             final_hf = (shocked_col * d['lt_avg']) / final_debt
