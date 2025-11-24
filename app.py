@@ -14,15 +14,23 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- Ocultar marcas de Streamlit (CSS Hack) ---
-hide_streamlit_style = """
+# --- Ocultar marcas de Streamlit, Menú y Pie de página ---
+hide_st_style = """
             <style>
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
+            /* Ocultar el Menú Hamburguesa (3 rayas) arriba a la derecha */
+            #MainMenu {visibility: hidden; display: none;}
+            
+            /* Ocultar el Footer 'Made with Streamlit' */
+            footer {visibility: hidden; display: none;}
+            
+            /* Ocultar la barra de colores superior (Header) */
+            header {visibility: hidden; display: none;}
+            
+            /* Ocultar botón de Deploy si aparece */
+            .stDeployButton {display:none;}
             </style>
             """
-st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+st.markdown(hide_st_style, unsafe_allow_html=True)
 
 # ==============================================================================
 #  1. CONFIGURACIÓN DE REDES Y CONTRATOS
@@ -714,4 +722,5 @@ with tab_onchain:
                     )
         else:
             st.success("Sin deuda activa.")
+
 
