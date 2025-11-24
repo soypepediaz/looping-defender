@@ -5,151 +5,134 @@ import yfinance as yf
 from datetime import date, timedelta
 from web3 import Web3
 import requests
+import json
 
 # ==============================================================================
-#  CONFIGURACIÓN DE LA PÁGINA
+#  CONFIGURACIÓN DE LA PÁGINA Y ESTILOS
 # ==============================================================================
 st.set_page_config(
     page_title="Looping Master - Final",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# --- Ocultar marcas de Streamlit, Menú y Pie de página ---
+# CSS para ocultar marcas de agua y limpiar la interfaz
 hide_st_style = """
             <style>
-            /* Ocultar el Menú Hamburguesa (3 rayas) arriba a la derecha */
-            #MainMenu {visibility: hidden; display: none;}
-            
-            /* Ocultar el Footer 'Made with Streamlit' */
-            footer {visibility: hidden; display: none;}
-            
-            /* Ocultar la barra de colores superior (Header) */
-            header {visibility: hidden; display: none;}
-            
-            /* Ocultar botón de Deploy si aparece */
+            #MainMenu {visibility: hidden;}
+            footer {visibility: hidden;}
+            header {visibility: hidden;}
             .stDeployButton {display:none;}
             </style>
             """
 st.markdown(hide_st_style, unsafe_allow_html=True)
 
+st.title("🛡️ Looping Master: Calculadora, Backtest & On-Chain")
+
 # ==============================================================================
-#  1. CONFIGURACIÓN DE REDES Y CONTRATOS
+#  1. CONFIGURACIÓN MARKETING (MOOSEND)
+# ==============================================================================
+MOOSEND_LIST_ID = "75c61863-63dc-4fd3-9ed8-856aee90d04a"
+
+def add_subscriber_moosend(name, email):
+    """Envía el suscriptor a la lista de Moosend vía API"""
+    try:
+        # Verificar si existe la API Key en los secretos
+        if "MOOSEND_API_KEY" not in st.secrets:
+            return False, "Falta configuración de API Key en Secrets."
+            
+        api_key = st.secrets["MOOSEND_API_KEY"]
+        url = f"https://api.moosend.com/v3/subscribers/{MOOSEND_LIST_ID}/subscribe.json?apikey={api_key}"
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+        
+        payload = {
+            "Name": name,
+            "Email": email,
+            "HasExternalDoubleOptIn": False
+        }
+        
+        response = requests.post(url, headers=headers, json=payload)
+        
+        if response.status_code == 200:
+            return True, "Success"
+        else:
+            try:
+                error_msg = response.json().get("Error", "Unknown Error")
+            except:
+                error_msg = str(response.status_code)
+            return False, error_msg
+            
+    except Exception as e:
+        return False, str(e)
+
+# ==============================================================================
+#  2. CONFIGURACIÓN DE REDES Y CONTRATOS
 # ==============================================================================
 
-# Diccionario de Redes con RPCs robustos
+# Usamos 'pool_provider' (AddressProvider) para encontrar siempre la dirección correcta del Pool
 NETWORKS = {
     "Base": {
         "chain_id": 8453,
-        "rpcs": [
-            "https://base.drpc.org",
-            "https://mainnet.base.org", 
-            "https://base-rpc.publicnode.com"
-        ],
+        "rpcs": ["https://base.drpc.org", "https://mainnet.base.org"],
         "pool_provider": "0xe20fCBdBfFC4Dd138cE8b2E6FBb6CB49777ad64D"
     },
     "Arbitrum": {
         "chain_id": 42161,
-        "rpcs": [
-            "https://arb1.arbitrum.io/rpc",
-            "https://rpc.ankr.com/arbitrum"
-        ],
+        "rpcs": ["https://arb1.arbitrum.io/rpc", "https://rpc.ankr.com/arbitrum"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Ethereum": {
         "chain_id": 1,
-        "rpcs": [
-            "https://eth.llamarpc.com",
-            "https://rpc.ankr.com/eth"
-        ], 
+        "rpcs": ["https://eth.llamarpc.com", "https://rpc.ankr.com/eth"], 
         "pool_provider": "0x2f39d218133AFaB8F2B819B1066c7E434Ad94E9e"
     },
     "Optimism": {
         "chain_id": 10,
-        "rpcs": [
-            "https://mainnet.optimism.io",
-            "https://rpc.ankr.com/optimism"
-        ],
+        "rpcs": ["https://mainnet.optimism.io", "https://rpc.ankr.com/optimism"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Polygon": {
         "chain_id": 137,
-        "rpcs": [
-            "https://polygon-rpc.com",
-            "https://rpc.ankr.com/polygon"
-        ],
+        "rpcs": ["https://polygon-rpc.com", "https://rpc.ankr.com/polygon"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     },
     "Avalanche": {
         "chain_id": 43114,
-        "rpcs": [
-            "https://api.avax.network/ext/bc/C/rpc"
-        ],
+        "rpcs": ["https://api.avax.network/ext/bc/C/rpc"],
         "pool_provider": "0xa97684ead0e402dC232d5A977953DF7ECBaB3CDb"
     }
 }
 
-# ABI LIGERO (AddressProvider + UserAccountData)
+# ABI LIGERO (Solo lo necesario para conectar y leer totales rápidamente)
 AAVE_ABI = [
     {
         "inputs": [],
         "name": "getPool",
-        "outputs": [
-            {
-                "internalType": "address",
-                "name": "",
-                "type": "address"
-            }
-        ],
+        "outputs": [{"internalType": "address", "name": "", "type": "address"}],
         "stateMutability": "view",
         "type": "function"
     },
     {
-        "inputs": [
-            {
-                "internalType": "address",
-                "name": "user",
-                "type": "address"
-            }
-        ],
+        "inputs": [{"internalType": "address", "name": "user", "type": "address"}],
         "name": "getUserAccountData",
         "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "totalCollateralBase",
-                "type": "uint256"
-            },
-            {
-                "internalType": "uint256",
-                "name": "totalDebtBase",
-                "type": "uint256"
-            },
-            {
-                "internalType": "uint256",
-                "name": "availableBorrowsBase",
-                "type": "uint256"
-            },
-            {
-                "internalType": "uint256",
-                "name": "currentLiquidationThreshold",
-                "type": "uint256"
-            },
-            {
-                "internalType": "uint256",
-                "name": "ltv",
-                "type": "uint256"
-            },
-            {
-                "internalType": "uint256",
-                "name": "healthFactor",
-                "type": "uint256"
-            }
+            {"internalType": "uint256", "name": "totalCollateralBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "totalDebtBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "availableBorrowsBase", "type": "uint256"},
+            {"internalType": "uint256", "name": "currentLiquidationThreshold", "type": "uint256"},
+            {"internalType": "uint256", "name": "ltv", "type": "uint256"},
+            {"internalType": "uint256", "name": "healthFactor", "type": "uint256"}
         ],
         "stateMutability": "view",
         "type": "function"
     }
 ]
 
-# Mapeo de activos
+# Mapeo de activos para los selectores
 ASSET_MAP = {
     "Bitcoin (WBTC/BTC)": "BTC-USD", 
     "Ethereum (WETH/ETH)": "ETH-USD", 
@@ -161,26 +144,27 @@ ASSET_MAP = {
 }
 
 # ==============================================================================
-#  2. FUNCIONES AUXILIARES
+#  3. FUNCIONES AUXILIARES (WEB3)
 # ==============================================================================
 
 def get_web3_session(rpc_url):
-    """Crea sesión con User-Agent para evitar bloqueos de nodos públicos."""
+    """Crea una sesión Web3 disfrazada de navegador Chrome"""
     s = requests.Session()
     s.headers.update({
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     })
-    return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 60}))
+    # Timeout de 30s es suficiente para llamadas ligeras
+    return Web3(Web3.HTTPProvider(rpc_url, session=s, request_kwargs={'timeout': 30}))
 
 def connect_robust(network_name):
-    """Gestiona la conexión priorizando Secrets."""
+    """Intenta conectar rotando RPCs y priorizando Secrets"""
     config = NETWORKS[network_name]
     rpcs = config["rpcs"][:] # Copia de la lista
     
     secret_key = f"{network_name.upper()}_RPC_URL"
     used_private = False
     
-    # Si existe el secreto, lo insertamos al principio
+    # Inyectar secreto (Alchemy/Infura) si existe en los Secrets
     if secret_key in st.secrets:
         private_rpc = st.secrets[secret_key].strip().replace('"', '').replace("'", "")
         rpcs.insert(0, private_rpc)
@@ -194,11 +178,10 @@ def connect_robust(network_name):
                     return w3, rpc, used_private
         except: 
             continue
-            
     return None, None, False
 
 # ==============================================================================
-#  3. UI: ESTRUCTURA DE PESTAÑAS (AHORA SON 4)
+#  4. INTERFAZ DE USUARIO (PESTAÑAS)
 # ==============================================================================
 
 tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
@@ -209,10 +192,9 @@ tab_home, tab_calc, tab_backtest, tab_onchain = st.tabs([
 ])
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 0: PORTADA (NUEVO)
+#  PESTAÑA 0: PORTADA & MARKETING
 # ------------------------------------------------------------------------------
 with tab_home:
-    # 1. HERO SECTION
     col_hero_L, col_hero_R = st.columns([2, 1])
     
     with col_hero_L:
@@ -228,18 +210,15 @@ with tab_home:
         * 📉 **Backtest:** Valida tu estrategia con datos históricos reales.
         * 📡 **Escáner:** Audita tu cartera real en Blockchain y simula "Crash Tests".
         """)
-        
         st.info("💡 **Tip:** Navega por las pestañas superiores para usar las herramientas.")
 
     with col_hero_R:
-        # Espacio para logo o branding visual
         st.markdown("### ⛺ Campamento DeFi")
         st.markdown("Tu comunidad de Estrategias On-Chain.")
         st.metric("Nivel de Riesgo", "Gestionado", delta="Alto Rendimiento")
 
     st.divider()
 
-    # 2. SECCIÓN DE CAPTACIÓN (LEAD MAGNET)
     st.markdown("### 🚀 ¿Quieres recibir más estrategias como esta?")
     
     c_form_1, c_form_2 = st.columns([3, 2])
@@ -257,31 +236,29 @@ with tab_home:
     with c_form_2:
         with st.form("email_form"):
             st.write("**Suscríbete al Campamento:**")
-            name_input = st.text_input("Nombre", placeholder="Satoshi Nakamoto")
-            email_input = st.text_input("Tu mejor Email", placeholder="satoshi@bitcoin.org")
+            name_input = st.text_input("Nombre", placeholder="Tu nombre")
+            email_input = st.text_input("Tu mejor Email", placeholder="tu@email.com")
             
-            # Botón de envío
             submitted = st.form_submit_button("📩 Unirme y Recibir Manual", type="primary")
             
             if submitted:
-                if email_input:
-                    # TODO: Aquí conectaremos con la API de Moosend más adelante
-                    st.success(f"¡Bienvenido al Campamento, {name_input}! Revisa tu bandeja de entrada.")
-                    st.balloons()
+                if email_input and "@" in email_input:
+                    with st.spinner("Apuntándote a la lista..."):
+                        success, msg = add_subscriber_moosend(name_input, email_input)
+                        
+                    if success:
+                        st.success(f"¡Bienvenido al Campamento, {name_input}! Revisa tu bandeja de entrada.")
+                        st.balloons()
+                    else:
+                        st.error(f"Hubo un error al suscribirte: {msg}")
                 else:
                     st.error("Por favor, introduce un email válido.")
 
     st.divider()
-    
-    # 3. FOOTER
-    st.caption("""
-    **Disclaimer:** Esta herramienta es solo para fines educativos y de simulación. 
-    DeFi conlleva riesgos elevados. Haz siempre tu propia investigación (DYOR). 
-    Desarrollado con ❤️ por el equipo de Campamento DeFi.
-    """)
+    st.caption("Desarrollado con ❤️ por el equipo de Campamento DeFi. DYOR.")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 1: CALCULADORA
+#  PESTAÑA 1: CALCULADORA ESTÁTICA (EXPANDIDA)
 # ------------------------------------------------------------------------------
 with tab_calc:
     st.markdown("### Simulador Estático de Defensa")
@@ -307,7 +284,7 @@ with tab_calc:
         c_threshold = st.number_input("Umbral Defensa (%)", value=15.0, step=1.0, key="c_th") / 100.0
         c_zones = st.slider("Zonas de Defensa", 1, 10, 5, key="c_zones")
 
-    # Cálculos matemáticos
+    # Cálculos base (Expandidos)
     c_collat_usd = c_capital * c_leverage
     c_debt_usd = c_collat_usd - c_capital
     c_collat_amt = c_collat_usd / c_price
@@ -321,7 +298,7 @@ with tab_calc:
         c_target_ratio = 0
         c_cushion_pct = 0
     
-    # Generar tabla cascada
+    # Generación de tabla en cascada
     cascade_data = []
     curr_collat = c_collat_amt
     curr_liq = c_liq_price
@@ -379,7 +356,6 @@ with tab_calc:
 
     df_calc = pd.DataFrame(cascade_data)
     
-    # Mostrar Tabla
     st.divider()
     st.dataframe(
         df_calc.style.format({
@@ -396,7 +372,6 @@ with tab_calc:
         use_container_width=True
     )
     
-    # Informe de Texto
     if not df_calc.empty:
         st.divider()
         last_row = df_calc.iloc[-1]
@@ -408,13 +383,12 @@ with tab_calc:
         """)
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 2: MOTOR DE BACKTESTING
+#  PESTAÑA 2: MOTOR DE BACKTESTING (EXPANDIDA)
 # ------------------------------------------------------------------------------
 with tab_backtest:
     st.markdown("### 📉 Validación Histórica")
     
     col_bt1, col_bt2, col_bt3 = st.columns(3)
-    
     with col_bt1:
         selected_asset_bt = st.selectbox("Seleccionar Activo Histórico", list(ASSET_MAP.keys()), key="sel_asset_bt")
         if ASSET_MAP[selected_asset_bt] == "MANUAL":
@@ -445,11 +419,13 @@ with tab_backtest:
 
                 start_date_actual = df_hist.index[0].date()
                 start_price = float(df_hist.iloc[0]['Close']) 
+                
+                # Variables iniciales
                 collateral_usd = bt_capital * bt_leverage
                 debt_usd = collateral_usd - bt_capital 
                 collateral_amt = collateral_usd / start_price 
                 
-                ltv_liq = c_ltv # Usamos el LTV de la pestaña 1
+                ltv_liq = c_ltv # Heredado de Tab 1
                 liq_price = debt_usd / (collateral_amt * ltv_liq)
                 target_ratio = liq_price / start_price 
                 
@@ -459,6 +435,7 @@ with tab_backtest:
                 
                 for date_idx, row in df_hist.iterrows():
                     if pd.isna(row['Close']): continue
+                    
                     low_val = float(row['Low'])
                     close_val = float(row['Close'])
                     open_val = float(row['Open'])
@@ -473,7 +450,7 @@ with tab_backtest:
                             is_liquidated = True
                             action = "LIQUIDATED ☠️"
                         else:
-                            # Lógica de defensa histórica
+                            # Defensa
                             target_liq_new = defense_price * (liq_price / start_price)
                             needed_collat_amt = debt_usd / (target_liq_new * ltv_liq)
                             add_collat_amt = needed_collat_amt - collateral_amt
@@ -497,7 +474,7 @@ with tab_backtest:
                         "Acción": action, 
                         "Liq Price": liq_price if not is_liquidated else 0,
                         "Inversión Acumulada": bt_capital + total_injected, 
-                        "Valor Estrategia": pos_value, 
+                        "Valor Estrategia": pos_value if not is_liquidated else 0, 
                         "Valor HODL": (bt_capital / start_price) * close_val 
                     })
                     
@@ -515,8 +492,7 @@ with tab_backtest:
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Valor Estrategia"], name='Estrategia', fill='tozeroy', line=dict(color='green')))
                 fig.add_trace(go.Scatter(x=df_res.index, y=df_res["Inversión Acumulada"], name='Inversión', line=dict(color='red', dash='dash')))
                 
-                # Marcadores de defensa
-                events = df_res[df_res["Acción"].str.contains("DEFENSA", na=False)]
+                events = df_res[df_res["Acción"].str.contains("DEFENSA")]
                 if not events.empty:
                     fig.add_trace(go.Scatter(x=events.index, y=events["Valor Estrategia"], mode='markers', name='Defensa', marker=dict(color='orange', size=10, symbol='diamond')))
                 
@@ -530,7 +506,7 @@ with tab_backtest:
                 st.error(f"Error: {e}")
 
 # ------------------------------------------------------------------------------
-#  PESTAÑA 3: ESCÁNER REAL (MODO SEGURO + MEMORIA)
+#  PESTAÑA 3: ESCÁNER REAL (MODO ROBUSTO + MEMORIA)
 # ------------------------------------------------------------------------------
 with tab_onchain:
     st.markdown("### 📡 Escáner Aave V3 (Modo Seguro)")
@@ -552,7 +528,8 @@ with tab_onchain:
         else:
             with st.spinner(f"Conectando a {net}..."):
                 w3, rpc_used, is_private = connect_robust(net)
-                if not w3: st.error("Error conexión RPC"); st.stop()
+                if not w3:
+                    st.error("Error conexión RPC. Revisa tus Secrets."); st.stop()
                 
                 try:
                     # 1. Obtener Pool Real
@@ -560,11 +537,11 @@ with tab_onchain:
                     prov_contract = w3.eth.contract(address=prov_addr, abi=AAVE_ABI)
                     pool_addr = prov_contract.functions.getPool().call()
                     
-                    # 2. Llamada Ligera
+                    # 2. Llamada Ligera (getUserAccountData)
                     pool = w3.eth.contract(address=pool_addr, abi=AAVE_ABI)
                     data = pool.functions.getUserAccountData(w3.to_checksum_address(addr)).call()
                     
-                    # 3. Guardar en Memoria
+                    # 3. Guardar en Memoria Session State
                     st.session_state.portfolio_data = {
                         "col_usd": data[0] / 10**8,
                         "debt_usd": data[1] / 10**8,
@@ -606,6 +583,7 @@ with tab_onchain:
                     sim_asset = st.selectbox("¿Cuál es tu colateral principal?", list(ASSET_MAP.keys()), key="oc_asset")
                     ticker = ASSET_MAP[sim_asset] if ASSET_MAP[sim_asset] != "MANUAL" else st.text_input("Ticker", "ETH-USD", key="oc_tick")
                 with c_par:
+                    # Umbral mínimo bajado al 5%
                     def_th = st.number_input("Umbral Defensa (%)", 5.0, step=1.0, key="oc_th") / 100.0
                     zones = st.slider("Zonas", 1, 10, 5, key="oc_z")
                     
@@ -626,32 +604,44 @@ with tab_onchain:
                     for i in range(1, zones+1):
                         trig = s_curr_l * (1 + def_th)
                         targ = trig * ratio_target
+                        
+                        # Cantidad necesaria para bajar liquidación al target
                         needed_amt = d['debt_usd'] / (targ * d['lt_avg'])
                         add_amt = max(0, needed_amt - s_curr_c)
-                        cost_usd = add_amt * trig
+                        
+                        cost_usd = add_amt * trig # Costo al precio del trigger
                         s_cum += cost_usd
                         s_curr_c += add_amt
+                        
+                        # Nuevo HF al inyectar
                         new_col_usd = s_curr_c * trig
                         new_hf = (new_col_usd * d['lt_avg']) / d['debt_usd']
                         
                         s_data.append({
-                            "Zona": f"#{i}", "Precio Activación": trig, 
-                            "Inyectar (Tokens)": add_amt, "Costo ($)": cost_usd, 
-                            "Acumulado ($)": s_cum, "Nuevo Liq": targ, "Nuevo HF": new_hf
+                            "Zona": f"#{i}", 
+                            "Precio Activación": trig, 
+                            "Inyectar (Tokens)": add_amt, 
+                            "Costo ($)": cost_usd, 
+                            "Acumulado ($)": s_cum, 
+                            "Nuevo Liq": targ, 
+                            "Nuevo HF": new_hf
                         })
                         s_curr_l = targ
                         
                     st.dataframe(pd.DataFrame(s_data).style.format({
-                        "Precio Activación": "${:,.2f}", "Costo ($)": "${:,.0f}", 
-                        "Acumulado ($)": "${:,.0f}", "Nuevo Liq": "${:,.2f}", 
-                        "Nuevo HF": "{:.2f}", "Inyectar (Tokens)": "{:.4f}"
+                        "Precio Activación": "${:,.2f}", 
+                        "Costo ($)": "${:,.0f}", 
+                        "Acumulado ($)": "${:,.0f}", 
+                        "Nuevo Liq": "${:,.2f}", 
+                        "Nuevo HF": "{:.2f}", 
+                        "Inyectar (Tokens)": "{:.4f}"
                     }), use_container_width=True)
                     
                 except Exception as ex:
                     st.error(f"Error precio: {ex}")
 
             # ==================================================================
-            # MODO B: MULTI-COLATERAL (LÓGICA PREVENTIVA - V4)
+            # MODO B: MULTI-COLATERAL (LÓGICA PREVENTIVA)
             # ==================================================================
             else:
                 st.info("Planificación preventiva basada en caída de Salud (Health Factor).")
@@ -687,11 +677,14 @@ with tab_onchain:
                         drop_pct = 1 - (trigger_hf / current_hf)
                         
                         # 3. Capital para RESTAURAR al HF Original
+                        # Colateral necesario para mantener el HF Original con la deuda actual
+                        # pero ajustado por la caída de valor
                         shocked_col = d['col_usd'] * (1 - drop_pct)
-                        # Valor base LT ponderado ajustado
+                        
+                        # Para saber cuánto inyectar para VOLVER al HF Original
+                        # Usamos la fórmula: Deuda - (Col_Shocked * LT / HF_Orig)
                         shocked_lt_val = (d['col_usd'] * d['lt_avg']) * (1 - drop_pct)
                         
-                        # Inyeccion = Deuda - (Shocked_Val / Target_HF)
                         needed_capital = d['debt_usd'] - (shocked_lt_val / current_hf)
                         if needed_capital < 0: needed_capital = 0
                         
@@ -722,5 +715,3 @@ with tab_onchain:
                     )
         else:
             st.success("Sin deuda activa.")
-
-
